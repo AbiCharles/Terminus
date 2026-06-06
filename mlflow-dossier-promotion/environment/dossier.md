@@ -131,7 +131,8 @@ executes the registered roster and lets the acceptance and fairness gates determ
 
 2. **`gbm_audit`** — a `GradientBoostingClassifier` configured with 200 estimators, a maximum tree
    depth of 3, a learning rate of 0.1, and random state 42. This configuration is trained on the
-   approved feature set **augmented with the `region_risk_index` field**. It exists so that the
+   approved feature set **augmented with the `region_risk_index` field as an additional numeric
+   feature** (standardized alongside the other numeric predictors). It exists so that the
    disparate-impact uplift attributable to the regional proxy can be measured explicitly; it is
    subject to exactly the same gates as every other candidate.
 
@@ -153,9 +154,13 @@ The approved **numeric** features are `income`, `loan_amount`, `dti_ratio`, `cre
 The field `region_risk_index` is **prohibited** as a model input for any model that is eligible for
 promotion. Although it is numerically predictive, it is a close geographic proxy that reproduces the
 regional disparity pattern the fair-lending program is obligated to suppress; its inclusion is
-treated as presumptively impermissible for the current cycle. The protected and quasi-protected
-attributes `age_group`, `gender`, and `region` are likewise never used as model inputs; they are
-retained in the dataset solely to compute the fairness statistics described in §11.
+treated as presumptively impermissible for the current cycle. For the purpose of the policy record,
+`region_risk_index` is the sole entry on the prohibited-feature list.
+
+The protected and quasi-protected attributes `age_group`, `gender`, and `region` are likewise never
+used as model inputs; they are retained in the dataset solely to compute the fairness statistics
+described in §11. They are not modelling features at all — approved or prohibited — and so are
+catalogued as the fairness slices in §11 rather than on the prohibited-feature list.
 
 ## §10 Performance Acceptance Criteria
 

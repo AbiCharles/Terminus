@@ -36,7 +36,7 @@ def champion_version(client):
 @pytest.fixture(scope="module")
 def champion_model_type(client, champion_version):
     run = client.get_run(champion_version.run_id)
-    return run.data.params.get("model_type")
+    return _reference.candidate_of_run(run, _reference.CANDIDATE_NAMES)
 
 
 @pytest.fixture(scope="module")

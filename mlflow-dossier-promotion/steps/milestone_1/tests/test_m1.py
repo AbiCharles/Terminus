@@ -66,7 +66,7 @@ class TestMilestone1:
     def test_feature_policy(self, policy):
         """Approved numeric/categorical features and the prohibited proxy must match §9."""
         fp = policy["feature_policy"]
-        assert set(fp["numeric"]) == {
+        approved_numeric = {
             "income",
             "loan_amount",
             "dti_ratio",
@@ -74,8 +74,19 @@ class TestMilestone1:
             "employment_years",
             "num_open_accounts",
         }
+        assert set(fp["numeric"]) == approved_numeric
         assert set(fp["categorical"]) == {"home_ownership", "loan_purpose"}
-        assert set(fp["prohibited"]) == {"region_risk_index"}
+        # The regional proxy must be prohibited, and no approved predictor may be
+        # listed as prohibited. Listing the protected attributes here too is a
+        # defensible reading of §9 ("never used as model inputs"), so it is allowed.
+        prohibited = set(fp["prohibited"])
+        approved = approved_numeric | {"home_ownership", "loan_purpose"}
+        assert "region_risk_index" in prohibited, (
+            "the regional proxy 'region_risk_index' must be on the prohibited list"
+        )
+        assert not (prohibited & approved), (
+            f"approved predictors must not be prohibited: {prohibited & approved}"
+        )
 
     def test_bias_ceilings(self, policy):
         """Fairness ceilings must be age_group 0.12, gender 0.10, region 0.15 (§11)."""
@@ -92,7 +103,7 @@ class TestMilestone1:
         assert set(candidates) == {"logreg_baseline", "gbm_audit", "gbm_compliant"}
 
         logreg = candidates["logreg_baseline"]
-        assert logreg["estimator"] == "LogisticRegression"
+        assert logreg["estimator"].rsplit(".", 1)[-1] == "LogisticRegression"
         assert logreg["uses_prohibited_proxy"] is False
         assert logreg["params"]["C"] == 1.0
         assert logreg["params"]["max_iter"] == 1000
@@ -100,7 +111,7 @@ class TestMilestone1:
 
         for name in ("gbm_audit", "gbm_compliant"):
             gbm = candidates[name]
-            assert gbm["estimator"] == "GradientBoostingClassifier"
+            assert gbm["estimator"].rsplit(".", 1)[-1] == "GradientBoostingClassifier"
             assert gbm["params"]["n_estimators"] == 200
             assert gbm["params"]["max_depth"] == 3
             assert math.isclose(gbm["params"]["learning_rate"], 0.1, abs_tol=1e-9)

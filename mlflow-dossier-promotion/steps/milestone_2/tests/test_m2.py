@@ -18,7 +18,11 @@ import _reference
 TRACKING_URI = "sqlite:////app/mlflow.db"
 EXPERIMENT = "credit_default_promotion"
 EXPECTED_CANDIDATES = {"logreg_baseline", "gbm_audit", "gbm_compliant"}
-METRIC_TOLERANCE = 5e-3
+# Tolerance for matching logged metrics against an independent retrain. Tight
+# enough to catch fabricated/sloppy results (e.g. skipping the specified feature
+# scaling shifts metrics by >0.015), loose enough to absorb benign solver-level
+# variance from a faithful reimplementation.
+METRIC_TOLERANCE = 1e-2
 
 
 @pytest.fixture(scope="module")
@@ -30,9 +34,9 @@ def runs_by_model():
     runs = client.search_runs([experiment.experiment_id])
     mapping = {}
     for run in runs:
-        model_type = run.data.params.get("model_type")
-        if model_type:
-            mapping[model_type] = run
+        name = _reference.candidate_of_run(run, EXPECTED_CANDIDATES)
+        if name:
+            mapping[name] = run
     return mapping
 
 
@@ -75,12 +79,20 @@ class TestMilestone2:
                 assert f"bias_dpd_{col}" in metrics, f"{name} missing fairness metric for {col}"
 
     def test_validation_report_artifact_logged(self, runs_by_model):
-        """Each run must log a validation_report.json artifact."""
+        """Each run must log a validation_report.json artifact (at any artifact path)."""
         client = MlflowClient()
+
+        def walk_artifacts(run_id, path=""):
+            for art in client.list_artifacts(run_id, path):
+                if art.is_dir:
+                    yield from walk_artifacts(run_id, art.path)
+                else:
+                    yield art.path
+
         for name in EXPECTED_CANDIDATES:
             run_id = runs_by_model[name].info.run_id
-            artifact_paths = {a.path for a in client.list_artifacts(run_id)}
-            assert "validation_report.json" in artifact_paths, (
+            basenames = {p.rsplit("/", 1)[-1] for p in walk_artifacts(run_id)}
+            assert "validation_report.json" in basenames, (
                 f"{name} missing validation_report.json artifact"
             )
 

@@ -9,3 +9,7 @@ dev/mlruns/
 **/__pycache__/
 *.pyc
 *.db
+
+# Harbor/stb local run outputs (scratch)
+jobs/
+jobs_*.log

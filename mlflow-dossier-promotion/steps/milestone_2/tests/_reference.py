@@ -41,6 +41,22 @@ CANDIDATES = [
     {"name": "gbm_audit", "kind": "gbm", "proxy": True},
     {"name": "gbm_compliant", "kind": "gbm", "proxy": False},
 ]
+CANDIDATE_NAMES = {c["name"] for c in CANDIDATES}
+
+
+def candidate_of_run(run, valid_names=CANDIDATE_NAMES):
+    """Identify which roster candidate an MLflow run is, tolerant of how the agent
+    recorded the model identity: a `model_type` param, a `model_type` tag, or the
+    run name. Returns the candidate name, or None if the run is unrelated."""
+    for value in (
+        run.data.params.get("model_type"),
+        run.data.tags.get("model_type"),
+        run.data.tags.get("mlflow.runName"),
+        getattr(run.info, "run_name", None),
+    ):
+        if value in valid_names:
+            return value
+    return None
 
 
 def _estimator(kind):

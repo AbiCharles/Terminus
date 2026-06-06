@@ -23,3 +23,5 @@ There's a long model-governance dossier at `/app/dossier.md` and a training data
 ```
 
 Fill every field with the binding values from the dossier: the registry identifiers and artifact path, the data-split protocol, the performance acceptance thresholds and the metric used to rank the champion, the approved and prohibited features, the fairness ceiling for each protected attribute, the full candidate roster with each model's estimator and hyperparameters, and the post-promotion rollback triggers. Be precise — superseded values from earlier editions must not appear.
+
+`feature_policy.prohibited` lists only the predictor field(s) the dossier forbids as model inputs (the regional proxy); the approved numeric/categorical predictors go in their respective lists. The protected attributes are not predictors and are captured by `bias_slices`, not by `prohibited`.

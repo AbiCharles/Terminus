@@ -2,7 +2,7 @@ We're standing up a governed model-promotion pipeline for our credit team and I 
 
 There's a long model-governance dossier at `/app/dossier.md` and a training dataset at `/app/data.csv`. Over three milestones you'll (1) turn the dossier's approval rules into a machine-readable policy, (2) train the candidate models the dossier registers and log them to a local MLflow tracking store, and (3) promote the one compliant champion into the MLflow Model Registry. Use MLflow with a sqlite backend at `sqlite:////app/mlflow.db` (artifacts under `/app/mlruns`) so the registry works. Read the dossier carefully — it has been revised several times and the older editions' numbers are still quoted in its case studies and appendices, but only the current edition's governing sections are binding.
 
-**Milestone 1 — codify the dossier rules.** Read `/app/dossier.md` and write the approval policy to `/app/policy.json` as a single JSON object with exactly this shape:
+Milestone 1: read `/app/dossier.md` and write the approval policy to `/app/policy.json` as a single JSON object with exactly this shape:
 
 ```json
 {
@@ -24,4 +24,4 @@ There's a long model-governance dossier at `/app/dossier.md` and a training data
 
 Fill every field with the binding values from the dossier: the registry identifiers and artifact path, the data-split protocol, the performance acceptance thresholds and the metric used to rank the champion, the approved and prohibited features, the fairness ceiling for each protected attribute, the full candidate roster with each model's estimator and hyperparameters, and the post-promotion rollback triggers. Be precise — superseded values from earlier editions must not appear.
 
-`feature_policy.prohibited` lists only the predictor field(s) the dossier forbids as model inputs (the regional proxy); the approved numeric/categorical predictors go in their respective lists. The protected attributes are not predictors and are captured by `bias_slices`, not by `prohibited`.
+One disambiguation on the schema: `feature_policy.prohibited` is only for predictor fields the dossier forbids as model inputs; the approved predictors go in the numeric/categorical lists, and the protected attributes belong in `bias_slices`, not in `prohibited`.

@@ -3,9 +3,9 @@ version = "2.0"
 
 # Task metadata (author, difficulty, categorization)
 [metadata]
-author_name = "anonymous"
-author_email = "anonymous"
-difficulty = "unknown"
+author_name = "Abigail Charles"
+author_email = "warriorp8@gmail.com"
+difficulty = "hard"
 category = "machine-learning"
 # Options for subcategories are: "long_context", "tool_specific", "api_integration", "db_interaction", "ui_building"
 subcategories = ["long_context", "tool_specific"]

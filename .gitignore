@@ -13,3 +13,6 @@ dev/mlruns/
 # Harbor/stb local run outputs (scratch)
 jobs/
 jobs_*.log
+
+# Built submission archive
+*.zip

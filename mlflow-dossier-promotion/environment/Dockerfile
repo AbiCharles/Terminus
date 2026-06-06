@@ -6,14 +6,19 @@ RUN apt-get update \
         asciinema \
     && rm -rf /var/lib/apt/lists/*
 
-# Agent runtime + verifier dependencies (pinned for reproducibility). The same
-# image is shared by the agent and the verifier; the sandbox runs offline, so
-# every dependency the verifier needs must be present here at build time.
+# Agent + verifier runtime dependencies (pinned for reproducibility). These are
+# needed both by the agent (to train/log models) and by the verifier (to retrain
+# the reference candidates), so they are installed into the image.
 RUN python -m pip install --no-cache-dir \
     mlflow==3.13.0 \
     scikit-learn==1.9.0 \
     pandas==2.3.3 \
-    numpy==2.4.6 \
+    numpy==2.4.6
+
+# Verifier-ONLY test dependencies (pytest stack) are staged as wheels rather than
+# installed, so the agent environment does not carry test tooling. tests/test.sh
+# installs them offline from this wheel directory at verification time.
+RUN python -m pip download --no-cache-dir -d /opt/wheels \
     pytest==8.4.1 \
     pytest-json-ctrf==0.3.5
 

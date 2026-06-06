@@ -1,0 +1,5 @@
+Milestone 2 — train and log the candidate roster.
+
+Using the policy you wrote to `/app/policy.json` and the dataset at `/app/data.csv`, train every candidate in the roster and log each one as its own run in the MLflow tracking store at `sqlite:////app/mlflow.db`, under the experiment named in the policy. Split the data exactly as the dossier's sampling protocol specifies and compute all acceptance metrics and fairness statistics on the evaluation split.
+
+For each candidate run, log: the model identity as a `model_type` param plus its estimator and hyperparameters; the `accuracy`, `f1_macro`, and `roc_auc` metrics; and one demographic-parity-difference metric per protected attribute named `bias_dpd_<attribute>` (e.g. `bias_dpd_region`). Also log a `validation_report.json` artifact for the run and the fitted model itself under the artifact path the policy specifies (`credit_default_model`). Remember that the prohibited feature must only ever be used by the candidate the dossier flags for it — the others must be trained on the approved feature set alone.

@@ -1,0 +1,71 @@
+# Task configuration schema version
+version = "2.0"
+
+# Task metadata (author, difficulty, categorization)
+[metadata]
+author_name = "anonymous"
+author_email = "anonymous"
+difficulty = "unknown"
+category = "machine-learning"
+# Options for subcategories are: "long_context", "tool_specific", "api_integration", "db_interaction", "ui_building"
+subcategories = ["long_context", "tool_specific"]
+# Total milestone count — must match the number of [[steps]] blocks below
+number_of_milestones = 3
+# Size of the codebase: minimal -> 0-20 files, small -> 20+ files, large -> 200+ files
+codebase_size = "minimal"
+# Coding languages used in the oracle solution or required by the agent
+languages = ["python"]
+# For tool_specific, api_integration, and db_interaction subcategories, please include specific tool, api framework, or database software
+tags = ["mlflow", "model-registry", "scikit-learn", "long-context", "model-governance"]
+# Estimated time to complete (minutes)
+expert_time_estimate_min = 120
+junior_time_estimate_min = 240
+
+# The agent reads the governance dossier at /app/dossier.md and the training
+# dataset at /app/data.csv. It extracts the approval policy to /app/policy.json
+# (milestone 1), trains the candidate roster and logs each to the local MLflow
+# tracking store backed by sqlite at /app/mlflow.db with artifacts under
+# /app/mlruns, writing a per-candidate validation report named
+# validation_report.json and logging each fitted model under the artifact path
+# credit_default_model (milestone 2), then registers the single compliant
+# champion under the registered model name meridian_credit_default_classifier
+# and assigns it the champion alias in the MLflow Model Registry (milestone 3).
+
+# Sandbox environment limits — applied across all milestones (the same container is shared)
+[environment]
+allow_internet = false
+build_timeout_sec = 1200.0
+cpus = 4
+memory_mb = 8192
+storage_mb = 12288
+workdir = "/app"
+
+# Milestone 1 — Codify Dossier Rules: extract approval policy to /app/policy.json
+[[steps]]
+name = "milestone_1"
+
+[steps.agent]
+timeout_sec = 1800.0
+
+[steps.verifier]
+timeout_sec = 450.0
+
+# Milestone 2 — Log Candidate Models: train the candidate roster and log runs to MLflow
+[[steps]]
+name = "milestone_2"
+
+[steps.agent]
+timeout_sec = 2400.0
+
+[steps.verifier]
+timeout_sec = 900.0
+
+# Milestone 3 — Promote Registry Champion: register the compliant champion with the champion alias
+[[steps]]
+name = "milestone_3"
+
+[steps.agent]
+timeout_sec = 1800.0
+
+[steps.verifier]
+timeout_sec = 900.0

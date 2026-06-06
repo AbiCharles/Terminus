@@ -1,4 +1,4 @@
-#!/bin/bash
+#!/usr/bin/env bash
 set -euo pipefail
 
 # Milestone 3 oracle: write the promotion logic as a source file and run it. It

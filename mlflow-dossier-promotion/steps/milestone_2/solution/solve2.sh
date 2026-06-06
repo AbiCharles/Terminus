@@ -1,4 +1,4 @@
-#!/bin/bash
+#!/usr/bin/env bash
 set -euo pipefail
 
 # Milestone 2 oracle: write the training/logging pipeline as a source file and

@@ -1,4 +1,4 @@
-#!/bin/bash
+#!/usr/bin/env bash
 set -euo pipefail
 
 # Milestone 1 oracle: encode the approval policy extracted from /app/dossier.md

@@ -6,8 +6,37 @@ RUN apt-get update \
         asciinema \
     && rm -rf /var/lib/apt/lists/*
 
-# Agent + verifier runtime dependencies (pinned). DuckDB is the system under test;
-# pandas/numpy are used by the verifier's independent recomputation.
+# DuckDB command-line shell (pinned). This is the agent's tool for the task: the
+# deliverable is SQL run against /app/graph.duckdb via this `duckdb` CLI, so no
+# Python is required to solve the task. Downloaded for the build architecture.
+ARG DUCKDB_VERSION=1.5.3
+RUN apt-get update \
+    && apt-get install -y --no-install-recommends curl unzip ca-certificates \
+    && arch="$(dpkg --print-architecture)" \
+    && case "$arch" in \
+         amd64) names="amd64" ;; \
+         arm64) names="arm64 aarch64" ;; \
+         *) names="$arch" ;; \
+       esac \
+    && ok=0 \
+    && for n in $names; do \
+         if curl -fsSL -o /tmp/duckdb_cli.zip \
+              "https://github.com/duckdb/duckdb/releases/download/v${DUCKDB_VERSION}/duckdb_cli-linux-${n}.zip"; then \
+           ok=1; break; \
+         fi; \
+       done \
+    && [ "$ok" = 1 ] || { echo "duckdb CLI download failed for arch $arch"; exit 1; } \
+    && unzip -o /tmp/duckdb_cli.zip -d /usr/local/bin \
+    && rm /tmp/duckdb_cli.zip \
+    && chmod +x /usr/local/bin/duckdb \
+    && duckdb --version \
+    && apt-get purge -y curl unzip \
+    && apt-get autoremove -y \
+    && rm -rf /var/lib/apt/lists/*
+
+# Verifier-ONLY dependencies (pinned). The pytest verifier recomputes ground truth
+# independently using the DuckDB Python API + pandas/numpy; these are not needed to
+# solve the task and are not the task's language (the agent works in SQL).
 RUN python -m pip install --no-cache-dir \
     duckdb==1.5.3 \
     pandas==2.3.3 \

@@ -3,9 +3,9 @@
 # recover the answers from the environment.
 FROM python:3.13-slim-bookworm@sha256:e4fa1f978c539608a10cdf74700ac32a3f719dfc6e8b6b6001da82deb36302a2 AS builder
 
-RUN pip install --no-cache-dir \
-    numpy==2.4.6 \
-    duckdb==1.4.4
+# Builder deps (numpy + duckdb) from a fully hashed lockfile.
+COPY requirements-build.lock /tmp/requirements-build.lock
+RUN pip install --no-cache-dir --require-hashes --no-deps -r /tmp/requirements-build.lock
 
 COPY generate_measurements.py /build/generate_measurements.py
 RUN python /build/generate_measurements.py /build/measurements.duckdb
@@ -20,15 +20,12 @@ RUN apt-get update \
         asciinema \
     && rm -rf /var/lib/apt/lists/*
 
-# Agent + verifier runtime dependencies (pinned). The agent needs these to query
-# the database and compute the analysis; the verifier needs them to recompute the
-# reference answers independently.
-RUN pip install --no-cache-dir \
-    numpy==2.4.6 \
-    scipy==1.16.3 \
-    pandas==2.3.3 \
-    duckdb==1.4.4 \
-    mlflow==3.13.0
+# Agent + verifier runtime dependencies. The agent needs these to query the
+# database and compute the analysis; the verifier needs them to recompute the
+# reference answers independently. Installed from a fully hashed lockfile
+# (requirements.in -> requirements.lock via uv) for reproducible builds.
+COPY requirements.lock /tmp/requirements.lock
+RUN pip install --no-cache-dir --require-hashes --no-deps -r /tmp/requirements.lock
 
 # Verifier-ONLY test dependencies (pytest stack) are staged as wheels rather than
 # installed, so the agent environment does not carry test tooling. Each milestone's

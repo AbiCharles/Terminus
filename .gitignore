@@ -16,3 +16,6 @@ jobs_*.log
 
 # Built submission archive
 *.zip
+
+# C allocator local prototype (oracle + harness used for local validation)
+c-heap-allocator/dev/

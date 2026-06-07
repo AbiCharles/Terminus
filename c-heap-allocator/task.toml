@@ -1,0 +1,72 @@
+# Task configuration schema version
+version = "2.0"
+
+# Task metadata (author, difficulty, categorization)
+[metadata]
+author_name = "Abigail Charles"
+author_email = "warriorp8@gmail.com"
+difficulty = "hard"
+category = "software-engineering"
+# Options for subcategories are: "long_context", "tool_specific", "api_integration", "db_interaction", "ui_building"
+subcategories = ["tool_specific"]
+# Total milestone count — must match the number of [[steps]] blocks below
+number_of_milestones = 3
+# Size of the codebase: minimal -> 0-20 files, small -> 20+ files, large -> 200+ files
+codebase_size = "minimal"
+# Coding languages used in the oracle solution or required by the agent
+languages = ["c"]
+# For tool_specific, api_integration, and db_interaction subcategories, please include specific tool, api framework, or database software
+tags = ["c", "memory-allocator", "systems-programming", "addresssanitizer", "undefinedbehaviorsanitizer", "gcc"]
+# Estimated time to complete (minutes)
+expert_time_estimate_min = 150
+junior_time_estimate_min = 360
+
+# The agent implements a fixed-arena memory allocator in C at /app/allocator.c,
+# against the contract in /app/allocator.h. Milestone 1 builds the arena with
+# xmalloc/xfree (16-byte alignment, no overlap, bounded capacity, no corruption).
+# Milestone 2 adds reclamation of freed blocks, splitting of large free regions,
+# and xcalloc with overflow detection. Milestone 3 adds boundary coalescing of
+# adjacent free blocks, full xrealloc semantics (grow/shrink/relocate, NULL/0
+# edge cases) and exact heap_stats accounting. The verifier compiles the
+# candidate's allocator together with an independent C harness under
+# AddressSanitizer + UndefinedBehaviorSanitizer and runs trace-driven scenarios
+# that check alignment, non-overlap, data integrity, reuse, coalescing and stats.
+
+# Sandbox environment limits — applied across all milestones (the same container is shared)
+[environment]
+allow_internet = false
+build_timeout_sec = 1200.0
+cpus = 4
+memory_mb = 8192
+storage_mb = 10240
+workdir = "/app"
+
+# Milestone 1 — Arena Allocator: xmalloc/xfree with alignment, bounds, integrity
+[[steps]]
+name = "milestone_1"
+
+[steps.agent]
+timeout_sec = 1800.0
+
+[steps.verifier]
+timeout_sec = 450.0
+
+# Milestone 2 — Reclamation: reuse freed blocks, split large regions, xcalloc
+[[steps]]
+name = "milestone_2"
+
+[steps.agent]
+timeout_sec = 1800.0
+
+[steps.verifier]
+timeout_sec = 450.0
+
+# Milestone 3 — Coalescing, realloc and statistics
+[[steps]]
+name = "milestone_3"
+
+[steps.agent]
+timeout_sec = 1800.0
+
+[steps.verifier]
+timeout_sec = 450.0

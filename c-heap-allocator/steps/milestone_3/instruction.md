@@ -1,0 +1,7 @@
+Finally, complete the allocator by extending `/app/allocator.c` with coalescing, full `xrealloc`, and statistics.
+
+- Coalescing: when blocks are freed, adjacent free blocks must merge into a single larger free block, so that space freed as many small pieces can satisfy a later large request. After a workload is fully freed, the arena must again be able to serve an allocation close to its full capacity.
+- `xrealloc(ptr, size)` resizes the allocation at `ptr` to `size` bytes, preserving the first `min(old_size, size)` bytes of its existing contents. Growing in place is fine when there is adjacent free space; otherwise relocate the data to a new block. `xrealloc(NULL, size)` behaves like `xmalloc(size)`, and `xrealloc(ptr, 0)` frees `ptr` and returns `NULL`. If a non-zero request cannot be satisfied, return `NULL` and leave the original block intact.
+- `heap_stats(out)` fills in the `heap_stats_t` snapshot. `bytes_in_use` is the sum of the payload sizes — the exact values originally passed to `xmalloc`/`xrealloc`/`xcalloc` — of all currently-live allocations. `live_allocations` is the number of outstanding allocations. `free_bytes` is the total payload space available for future allocations, and `largest_free_block` is the payload size of the single largest allocation that could currently be satisfied.
+
+Every earlier guarantee — alignment, non-overlap, in-bounds, reuse, splitting, and no corruption of live data — continues to hold.

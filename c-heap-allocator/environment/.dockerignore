@@ -1,0 +1,7 @@
+# The dev/ prototype (oracle allocator + harness used for local validation) and
+# any build artifacts must never enter the image.
+../dev
+../steps
+*.o
+*.out
+a.out

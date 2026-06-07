@@ -40,7 +40,7 @@ def runs_by_buoy():
     assert experiment is not None, f"MLflow experiment '{EXPERIMENT_NAME}' was not created"
     mapping = {}
     for run in client.search_runs([experiment.experiment_id]):
-        key = run.data.tags.get("buoy_id") or run.data.tags.get("mlflow.runName")
+        key = run.data.tags.get("buoy_id")  # must be tagged with buoy_id (no run-name fallback)
         if key:
             mapping[key] = run
     return mapping
@@ -71,9 +71,12 @@ class TestMilestone3:
     """Milestone 3: heteroscedastic three-parameter change-point posterior per buoy."""
 
     def test_observation_count(self, included, reference):
-        """Each posterior must report the admitted observation count from the clean series."""
+        """Each posterior must report buoy_id, sensor_type and the admitted observation count."""
         for buoy in included:
-            assert load(buoy)["n_observations"] == reference[buoy]["n_observations"]
+            p = load(buoy)
+            assert p["buoy_id"] == buoy, f"{buoy} posterior.json buoy_id wrong"
+            assert p["sensor_type"] == reference[buoy]["sensor_type"], f"{buoy} posterior.json sensor_type wrong"
+            assert p["n_observations"] == reference[buoy]["n_observations"]
 
     def test_changepoint(self, included, reference):
         """Each posterior must report the changepoint in elapsed days."""
@@ -129,6 +132,27 @@ class TestMilestone3:
                 f"{buoy} run status tag should be {expected}"
             )
 
+    def test_run_params_and_metrics(self, included, reference, runs_by_buoy):
+        """Each buoy's run must be named after the buoy and log the required params and metrics
+        (experiment 'buoy-calibration' is enforced by the runs_by_buoy fixture)."""
+        for buoy in included:
+            run = runs_by_buoy[buoy]
+            assert run.info.run_name == buoy, f"{buoy} run must be named '{buoy}'"
+            params = run.data.params
+            assert params.get("sensor_type") == reference[buoy]["sensor_type"], f"{buoy} missing/incorrect sensor_type param"
+            assert int(params["n_observations"]) == reference[buoy]["n_observations"], f"{buoy} n_observations param wrong"
+            assert float(params["changepoint_t_days"]) == pytest.approx(
+                reference[buoy]["changepoint_t_days"], abs=1e-6
+            ), f"{buoy} changepoint_t_days param wrong"
+            metrics = run.data.metrics
+            post = reference[buoy]["posterior"]
+            for p in PARAMS:
+                assert metrics[f"{p}_mean"] == pytest.approx(post[p]["mean"], rel=1e-3, abs=1e-9), f"{buoy} {p}_mean metric"
+                assert metrics[f"{p}_std"] == pytest.approx(post[p]["std"], rel=1e-2, abs=1e-9), f"{buoy} {p}_std metric"
+            assert metrics["corrected_rmse"] == pytest.approx(
+                reference[buoy]["calibration"]["corrected_rmse"], rel=1e-3, abs=1e-9
+            ), f"{buoy} corrected_rmse metric"
+
     def test_accepted_models_registered_and_predict(self, included, gate, reference):
         """Accepted buoys must have their model registered under the buoy_id alias and, when
         loaded, predict offset+drift*t+drift_change*hinge; rejected buoys must NOT be registered."""
@@ -145,6 +169,14 @@ class TestMilestone3:
                 expected = post["offset"]["mean"] + post["drift"]["mean"] * t + post["drift_change"]["mean"] * hinge
                 assert np.allclose(pred, expected, rtol=1e-3, atol=1e-6), (
                     f"{buoy}: registered model predictions do not match the calibration"
+                )
+                # Pre-changepoint probe (hinge=0): catches a model that conflates
+                # drift with drift_change or ignores the hinge feature.
+                t0 = np.array([5.0, 40.0], dtype=np.float64)
+                pred0 = np.asarray(model.predict(np.column_stack([t0, np.zeros_like(t0)])), dtype=np.float64)
+                expected0 = post["offset"]["mean"] + post["drift"]["mean"] * t0
+                assert np.allclose(pred0, expected0, rtol=1e-3, atol=1e-6), (
+                    f"{buoy}: pre-changepoint predictions (hinge=0) are wrong"
                 )
             else:
                 try:
@@ -168,6 +200,26 @@ class TestMilestone3:
                     f"{buoy} (accepted) must log a model via mlflow.sklearn.log_model "
                     f"(no LoggedModel found for its run)"
                 )
+
+    def test_model_version_tag(self, included, gate):
+        """Each accepted buoy's registered model VERSION must be tagged validation_status=accepted
+        and be resolvable via its alias (MLflow 3.x registry API: get_model_version_by_alias)."""
+        client = MlflowClient()
+        for buoy in included:
+            if gate[buoy]:
+                mv = client.get_model_version_by_alias(REGISTERED_MODEL, buoy)
+                assert mv.tags.get("validation_status") == "accepted", (
+                    f"{buoy}: registered model version must be tagged validation_status=accepted"
+                )
+
+    def test_summary_accept_reject(self, included, gate):
+        """summary.json must list the accepted and rejected buoys and n_accepted per the gate."""
+        summary = json.loads((ARTIFACTS / "summary.json").read_text())
+        exp_acc = sorted(b for b in included if gate[b])
+        exp_rej = sorted(b for b in included if not gate[b])
+        assert sorted(summary.get("accepted", [])) == exp_acc, "summary.accepted must list accepted buoys"
+        assert sorted(summary.get("rejected", [])) == exp_rej, "summary.rejected must list rejected buoys"
+        assert summary["fleet"]["n_accepted"] == len(exp_acc), "fleet.n_accepted must match the gate"
 
     def test_fleet_summary(self, included, reference):
         """summary.json must aggregate the per-buoy corrected RMSE over the calibrated fleet."""

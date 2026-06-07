@@ -272,6 +272,7 @@ def main(argv=None):
                 if is_accepted:
                     version = mlflow.register_model(info.model_uri, REGISTERED_MODEL)
                     client.set_registered_model_alias(REGISTERED_MODEL, buoy_id, version.version)
+                    client.set_model_version_tag(REGISTERED_MODEL, version.version, "validation_status", "accepted")
                     summary["accepted"].append(buoy_id)
                 else:
                     summary["rejected"].append(buoy_id)

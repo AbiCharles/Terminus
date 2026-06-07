@@ -1,11 +1,11 @@
 """Tests for milestone 2 (Query Buoy Observations). Run alone with: pytest tests/test_m2.py
 
-These tests verify that, for every calibrated buoy (active status, included sensor
-type), /app/artifacts/<buoy_id>/clean.csv contains the cleaned residual series the
-binding rules imply — exclusion windows dropped, unit conversion applied, elapsed
-days computed from the mission epoch, residual = converted - reference — checked
-against an independent recomputation straight from the SQLite store (_reference.py).
-Buoys that are retired or carry a non-included sensor type must produce no output.
+Verifies that, for every calibrated buoy, /app/artifacts/<buoy_id>/clean.csv holds
+the cleaned residual series the binding rules imply — exclusion windows dropped,
+unit conversion applied, elapsed days from the epoch, residual = converted -
+reference, and the per-observation measurement_std carried through — checked
+against an independent recomputation from the SQLite store (_reference.py).
+Non-calibrated buoys must produce no output.
 """
 
 import csv
@@ -18,7 +18,7 @@ import pytest
 import _reference
 
 ARTIFACTS = Path("/app/artifacts")
-EXPECTED_HEADER = ["timestamp", "t_days", "converted_value", "reference_value", "residual"]
+EXPECTED_HEADER = ["timestamp", "t_days", "converted_value", "reference_value", "residual", "measurement_std"]
 
 
 @pytest.fixture(scope="module")
@@ -48,13 +48,13 @@ class TestMilestone2:
             assert header == EXPECTED_HEADER, f"{buoy} wrong header: {header}"
 
     def test_rows_match_reference(self, included):
-        """Timestamps, elapsed days, converted/reference values and residuals must match."""
+        """Timestamps, elapsed days, converted/reference/residual and measurement_std must match."""
         for buoy in included:
             _header, rows = read_clean(ARTIFACTS / buoy / "clean.csv")
             ref = _reference.clean_series(buoy)
             assert len(rows) == len(ref["timestamp"]), f"{buoy} row count differs"
             assert [r[0] for r in rows] == ref["timestamp"], f"{buoy} timestamps differ/unordered"
-            for col, key in enumerate(["t_days", "converted_value", "reference_value", "residual"], start=1):
+            for col, key in enumerate(["t_days", "converted_value", "reference_value", "residual", "measurement_std"], start=1):
                 got = np.array([float(r[col]) for r in rows], dtype=np.float64)
                 exp = np.array(ref[key], dtype=np.float64)
                 assert np.allclose(got, exp, rtol=1e-6, atol=1e-9), f"{buoy} {key} differs from reference"
@@ -64,8 +64,7 @@ class TestMilestone2:
         for buoy in included:
             _header, rows = read_clean(ARTIFACTS / buoy / "clean.csv")
             for r in rows:
-                ts_dt = _reference._parse(r[0])
-                assert not _reference._is_excluded(buoy, ts_dt), (
+                assert not _reference._is_excluded(buoy, _reference._parse(r[0])), (
                     f"{buoy} admitted an excluded timestamp {r[0]}"
                 )
 

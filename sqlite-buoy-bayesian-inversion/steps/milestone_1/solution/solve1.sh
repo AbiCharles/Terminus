@@ -7,12 +7,12 @@ set -euo pipefail
 # notebook into /app/protocol.json.
 cat > /app/buoy_calibrate.py <<'PY'
 #!/usr/bin/env python3
-"""Ocean-buoy sensor-drift calibration CLI (SQLite + Bayesian inversion).
+"""Ocean-buoy sensor-drift calibration CLI (SQLite + weighted change-point Bayesian inversion).
 
-Three subcommands:
+Subcommands:
   parse   extract the binding calibration protocol from the mission notebook
   query   write the cleaned residual series per buoy from the SQLite store
-  invert  compute the conjugate Gaussian posterior for offset and drift
+  invert  fit the heteroscedastic three-parameter change-point Gaussian posterior
 """
 
 import argparse
@@ -26,51 +26,44 @@ from datetime import datetime, timezone
 import numpy as np
 
 TS = r"\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}Z"
+DEC = r"-?[0-9]+\.[0-9]+"
 Z95 = 1.959963984540054
+PARAMS = ("offset", "drift", "drift_change")
 
 
-# --------------------------------------------------------------------------- parse
 def parse_notebook(path):
     raw = open(path, encoding="utf-8").read()
-    # Only the governing sections (§6 through §13) are binding; everything from
-    # §14 onward (and the §1-§5 front matter) is background and carries superseded
-    # distractor values.
     governing = raw[raw.index("## §6"):raw.index("## §14")]
     flat = re.sub(r"\s+", " ", governing)
 
-    def find(pattern, group=1, cast=str):
+    def find(pattern, cast=str):
         m = re.search(pattern, flat)
         if not m:
             raise SystemExit(f"protocol extraction failed: {pattern}")
-        return cast(m.group(group))
+        return cast(m.group(1))
 
     epoch = find(rf"mission epoch is fixed at ({TS})")
+    changepoint = find(rf"drift changepoint at ({TS})")
     active_status = find(r"operational status is (\w+)")
-    inc_segment = find(r"Only (.+?) sensor channels are included")
-    included = re.findall(r"temperature|pressure|salinity", inc_segment)
+    included = re.findall(r"temperature|pressure|salinity", find(r"Only (.+?) sensor channels are included"))
 
-    dec = r"-?[0-9]+\.[0-9]+"
     sensors = {}
-    sensors["temperature"] = {
-        "unit_conversion": find(rf"Temperature raw counts .*? multiplying by ({dec})", cast=float),
-        "noise_std": find(rf"noise standard deviation is ({dec}) for temperature", cast=float),
-    }
-    sensors["pressure"] = {
-        "unit_conversion": find(rf"Pressure raw counts .*? multiplying by ({dec})", cast=float),
-        "noise_std": find(rf"and ({dec}) for pressure", cast=float),
-    }
+    sensors["temperature"] = {"unit_conversion": find(rf"Temperature raw counts .*? multiplying by ({DEC})", float)}
+    sensors["pressure"] = {"unit_conversion": find(rf"Pressure raw counts .*? multiplying by ({DEC})", float)}
     for stype in ("temperature", "pressure"):
         m = re.search(
-            rf"For {stype}, the offset prior is Gaussian with mean ({dec}) and standard "
-            rf"deviation ({dec}), and the drift prior is Gaussian with mean ({dec}) and "
-            rf"standard deviation ({dec})",
+            rf"For {stype}, the offset prior is Gaussian with mean ({DEC}) and standard deviation ({DEC}), "
+            rf"the drift prior is Gaussian with mean ({DEC}) and standard deviation ({DEC}), and the "
+            rf"drift-change prior is Gaussian with mean ({DEC}) and standard deviation ({DEC})",
             flat,
         )
         if not m:
             raise SystemExit(f"prior extraction failed for {stype}")
+        g = [float(x) for x in m.groups()]
         sensors[stype]["priors"] = {
-            "offset": {"mean": float(m.group(1)), "std": float(m.group(2))},
-            "drift": {"mean": float(m.group(3)), "std": float(m.group(4))},
+            "offset": {"mean": g[0], "std": g[1]},
+            "drift": {"mean": g[2], "std": g[3]},
+            "drift_change": {"mean": g[4], "std": g[5]},
         }
 
     exclusions = []
@@ -85,12 +78,12 @@ def parse_notebook(path):
         "time_unit": "days",
         "active_status": active_status,
         "included_sensor_types": included,
+        "drift_changepoint": changepoint,
         "sensors": sensors,
         "exclusion_intervals": exclusions,
     }
 
 
-# ------------------------------------------------------------------------ utilities
 def _parse_ts(ts):
     return datetime.strptime(ts, "%Y-%m-%dT%H:%M:%SZ").replace(tzinfo=timezone.utc)
 
@@ -117,50 +110,55 @@ def clean_series(con, buoy_id, sensor_type, protocol):
     epoch = _parse_ts(protocol["mission_epoch"])
     intervals = protocol["exclusion_intervals"]
     rows = con.execute(
-        "SELECT timestamp, raw_reading, reference_reading FROM observations "
+        "SELECT timestamp, raw_reading, reference_reading, measurement_std FROM observations "
         "WHERE buoy_id = ? ORDER BY timestamp",
         (buoy_id,),
     ).fetchall()
-    series = {"timestamp": [], "t_days": [], "converted_value": [], "reference_value": [], "residual": []}
-    for ts, raw, ref in rows:
+    s = {k: [] for k in ("timestamp", "t_days", "converted_value", "reference_value", "residual", "measurement_std")}
+    for ts, raw, ref, std in rows:
         ts_dt = _parse_ts(ts)
         if _excluded(buoy_id, ts_dt, intervals):
             continue
         converted = raw * scale
-        series["timestamp"].append(ts)
-        series["t_days"].append((ts_dt - epoch).total_seconds() / 86400.0)
-        series["converted_value"].append(converted)
-        series["reference_value"].append(ref)
-        series["residual"].append(converted - ref)
-    return series
+        s["timestamp"].append(ts)
+        s["t_days"].append((ts_dt - epoch).total_seconds() / 86400.0)
+        s["converted_value"].append(converted)
+        s["reference_value"].append(ref)
+        s["residual"].append(converted - ref)
+        s["measurement_std"].append(std)
+    return s
+
+
+def changepoint_t_days(protocol):
+    return (_parse_ts(protocol["drift_changepoint"]) - _parse_ts(protocol["mission_epoch"])).total_seconds() / 86400.0
 
 
 def compute_posterior(series, sensor_type, protocol):
     t = np.array(series["t_days"], dtype=np.float64)
     r = np.array(series["residual"], dtype=np.float64)
+    std = np.array(series["measurement_std"], dtype=np.float64)
     n = t.shape[0]
+    t_change = changepoint_t_days(protocol)
+    hinge = np.maximum(0.0, t - t_change)
+    design = np.column_stack([np.ones(n), t, hinge])
+    w = 1.0 / std**2
+    atwa = design.T @ (design * w[:, None])
+    atwr = design.T @ (r * w)
     priors = protocol["sensors"][sensor_type]["priors"]
-    noise_std = protocol["sensors"][sensor_type]["noise_std"]
-    m0 = np.array([priors["offset"]["mean"], priors["drift"]["mean"]], dtype=np.float64)
-    s0_inv = np.diag([1.0 / priors["offset"]["std"] ** 2, 1.0 / priors["drift"]["std"] ** 2])
-    sigma2 = noise_std ** 2
-    design = np.column_stack([np.ones(n), t])
-    sn = np.linalg.inv(s0_inv + design.T @ design / sigma2)
-    mn = sn @ (s0_inv @ m0 + design.T @ r / sigma2)
-    offset_mean, drift_mean = float(mn[0]), float(mn[1])
-    offset_std, drift_std = float(np.sqrt(sn[0, 0])), float(np.sqrt(sn[1, 1]))
-    corrected = r - (offset_mean + drift_mean * t)
+    m0 = np.array([priors[p]["mean"] for p in PARAMS], dtype=np.float64)
+    s0_inv = np.diag([1.0 / priors[p]["std"] ** 2 for p in PARAMS])
+    sn = np.linalg.inv(s0_inv + atwa)
+    mn = sn @ (s0_inv @ m0 + atwr)
+    sds = np.sqrt(np.diag(sn))
+    corrected = r - design @ mn
     return {
         "buoy_id": None,
         "sensor_type": sensor_type,
         "n_observations": int(n),
-        "posterior": {
-            "offset": {"mean": offset_mean, "std": offset_std},
-            "drift": {"mean": drift_mean, "std": drift_std},
-        },
+        "changepoint_t_days": float(t_change),
+        "posterior": {p: {"mean": float(mn[i]), "std": float(sds[i])} for i, p in enumerate(PARAMS)},
         "credible_interval_95": {
-            "offset": [offset_mean - Z95 * offset_std, offset_mean + Z95 * offset_std],
-            "drift": [drift_mean - Z95 * drift_std, drift_mean + Z95 * drift_std],
+            p: [float(mn[i] - Z95 * sds[i]), float(mn[i] + Z95 * sds[i])] for i, p in enumerate(PARAMS)
         },
         "calibration": {
             "rmse_residual": float(np.sqrt(np.mean(r**2))),
@@ -172,7 +170,7 @@ def compute_posterior(series, sensor_type, protocol):
 def write_clean_csv(path, series):
     with open(path, "w", newline="") as fh:
         writer = csv.writer(fh)
-        writer.writerow(["timestamp", "t_days", "converted_value", "reference_value", "residual"])
+        writer.writerow(["timestamp", "t_days", "converted_value", "reference_value", "residual", "measurement_std"])
         for i in range(len(series["timestamp"])):
             writer.writerow([
                 series["timestamp"][i],
@@ -180,24 +178,21 @@ def write_clean_csv(path, series):
                 repr(series["converted_value"][i]),
                 repr(series["reference_value"][i]),
                 repr(series["residual"][i]),
+                repr(series["measurement_std"][i]),
             ])
 
 
-# ----------------------------------------------------------------------------- main
 def main(argv=None):
     parser = argparse.ArgumentParser(description="Buoy sensor-drift calibration")
     sub = parser.add_subparsers(dest="command", required=True)
-
     p_parse = sub.add_parser("parse")
     p_parse.add_argument("--notebook", default="/app/mission_notebook.md")
     p_parse.add_argument("--out", default="/app/protocol.json")
-
     for name in ("query", "invert"):
         sp = sub.add_parser(name)
         sp.add_argument("--db", default="/app/observations.db")
         sp.add_argument("--protocol", default="/app/protocol.json")
         sp.add_argument("--output-dir", default="/app/artifacts")
-
     args = parser.parse_args(argv)
 
     if args.command == "parse":
@@ -216,9 +211,8 @@ def main(argv=None):
             for buoy_id, sensor_type in buoys:
                 target = os.path.join(args.output_dir, buoy_id)
                 os.makedirs(target, exist_ok=True)
-                series = clean_series(con, buoy_id, sensor_type, protocol)
-                write_clean_csv(os.path.join(target, "clean.csv"), series)
-                print(f"query: {buoy_id} ({len(series['timestamp'])} rows)")
+                write_clean_csv(os.path.join(target, "clean.csv"), clean_series(con, buoy_id, sensor_type, protocol))
+                print(f"query: {buoy_id}")
         elif args.command == "invert":
             summary = {"buoys": [], "fleet": {}}
             for buoy_id, sensor_type in buoys:
@@ -235,7 +229,7 @@ def main(argv=None):
                     "n_observations": result["n_observations"],
                     "offset_mean": result["posterior"]["offset"]["mean"],
                     "drift_mean": result["posterior"]["drift"]["mean"],
-                    "rmse_residual": result["calibration"]["rmse_residual"],
+                    "drift_change_mean": result["posterior"]["drift_change"]["mean"],
                     "corrected_rmse": result["calibration"]["corrected_rmse"],
                 })
                 print(f"invert: {buoy_id}")

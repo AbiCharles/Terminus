@@ -69,65 +69,67 @@ in §11.
 ## §6 Mission Epoch and Time Convention
 
 The mission epoch is fixed at 2024-01-01T00:00:00Z. Throughout the current cycle, elapsed time is
-measured in days since the mission epoch, and drift is expressed as a per-day rate. A reading taken at
-the epoch therefore has an elapsed time of zero days, and the drift contribution to a reading grows
-linearly with the number of days since the epoch.
+measured in days since the mission epoch, and every drift quantity is a per-day rate. A reading at the
+epoch has an elapsed time of zero days.
 
 ## §7 Sensor Inclusion Criteria
 
-Calibration is carried out only for buoys whose operational status is active at the time of
-processing. Only temperature and pressure sensor channels are included in the present calibration
-cycle; salinity channels are out of scope and are not calibrated here. A mooring that is retired, or
-whose channel is not one of the included types, is omitted entirely from every downstream product.
+Calibration is carried out only for buoys whose operational status is active at the time of processing.
+Only temperature and pressure sensor channels are included in the present calibration cycle; salinity
+channels are out of scope and are not calibrated here. A retired mooring, or one whose channel is not an
+included type, is omitted entirely from every downstream product.
 
 ## §8 Unit Conversion Standards
 
 Temperature raw counts are converted to degrees Celsius by multiplying by 0.0625. Pressure raw counts
-are converted to decibars by multiplying by 0.1. These conversions yield physical values in the same
-units as the co-located reference channel, so that the difference between a converted reading and its
-reference is a residual in physical units.
+are converted to decibars by multiplying by 0.1. These conversions place a converted reading in the same
+physical units as its co-located reference, so the residual (converted minus reference) is in physical
+units.
 
-## §9 Observation Noise Model
+## §9 Observation Weighting
 
-The discrepancy between a converted reading and its reference is modelled as the sum of a calibration
-term and zero-mean Gaussian observation noise. The observation noise standard deviation is 0.05 for
-temperature and 0.2 for pressure. These values are treated as known and are used directly as the
-likelihood noise scale in the inversion.
+The observation noise is not a single per-sensor constant this cycle. Each observation carries its own
+measurement standard deviation in the measurement_std column of the database, already expressed in
+physical units. The inversion treats each observation's noise as known and independent and weights each
+observation by the inverse of its variance, so noisier observations contribute less to the estimate than
+precise ones.
 
-## §10 Bayesian Prior Elicitation
+## §10 Drift Changepoint
 
-The calibration term for each buoy is an additive offset plus a linear drift in elapsed days, and each
-parameter is given an independent Gaussian prior. For temperature, the offset prior is Gaussian with
-mean 0.0 and standard deviation 0.5, and the drift prior is Gaussian with mean 0.0 and standard
-deviation 0.02. For pressure, the offset prior is Gaussian with mean 0.0 and standard deviation 2.0,
-and the drift prior is Gaussian with mean 0.0 and standard deviation 0.05. The priors are deliberately
-weak so that, where the record is informative, the data dominate the posterior.
+A fleet-wide servicing in mid-March alters each instrument's drift rate, so the drift is not a single
+constant slope across the season. The current cycle models a drift changepoint at 2024-03-17T00:00:00Z:
+the residual equals an additive offset, plus a baseline drift acting on elapsed days, plus a drift change
+acting on the days elapsed beyond the changepoint (and zero before it). The changepoint instant is the
+same for every buoy.
 
-## §11 Exclusion and Maintenance Protocol
+## §11 Bayesian Prior Elicitation
+
+Each of the three calibration parameters — the offset, the baseline drift, and the drift change — is given
+an independent Gaussian prior per sensor type. For temperature, the offset prior is Gaussian with mean
+0.0 and standard deviation 0.5, the drift prior is Gaussian with mean 0.0 and standard deviation 0.02,
+and the drift-change prior is Gaussian with mean 0.0 and standard deviation 0.02. For pressure, the
+offset prior is Gaussian with mean 0.0 and standard deviation 2.0, the drift prior is Gaussian with mean
+0.0 and standard deviation 0.05, and the drift-change prior is Gaussian with mean 0.0 and standard
+deviation 0.05. The priors are weakly informative so that, where the record is informative, the data
+dominate the posterior.
+
+## §12 Exclusion and Maintenance Protocol
 
 Readings that fall inside a maintenance exclusion are not admitted to the calibration. A fleet-wide
 maintenance exclusion applies to all buoys from 2024-03-10T00:00:00Z to 2024-03-17T00:00:00Z. An
 additional exclusion applies to buoy B003 from 2024-05-01T00:00:00Z to 2024-05-20T00:00:00Z. An
-exclusion is half-open: a reading exactly at the start instant is excluded, and a reading exactly at
-the end instant is admitted.
+exclusion is half-open: a reading exactly at the start instant is excluded, and a reading exactly at the
+end instant is admitted.
 
-## §12 Inversion Methodology
+## §13 Inversion Methodology and Reporting
 
-For each included buoy, form the residual series by subtracting the reference reading from the
-converted reading at each admitted timestamp. Treat the residual as a linear function of elapsed days
-with an intercept equal to the offset and a slope equal to the drift, observed under the Gaussian noise
-of §9. Combine this likelihood with the Gaussian priors of §10 to obtain the conjugate Gaussian
-posterior over the offset and drift, and report the posterior mean and standard deviation of each
-parameter together with a central 95% credible interval.
-
-## §13 Output and Reporting Requirements
-
-For each included buoy, report the number of admitted observations, the posterior offset and drift,
-and the calibration quality expressed as the root-mean-square residual before correction and after
-subtracting the posterior offset and drift. A fleet-level summary aggregates the per-buoy corrected
-root-mean-square residuals. All physical quantities are reported in the units established in §8.
-
----
+For each included buoy, form the residual series by subtracting the reference from the converted reading
+at each admitted timestamp, and fit the change-point drift model of §10 by combining the inverse-variance
+observation weights of §9 with the Gaussian priors of §11. The estimate is the conjugate Gaussian
+posterior over the offset, the baseline drift, and the drift change; report each parameter's posterior
+mean and standard deviation and a central 95% credible interval, together with the admitted observation
+count, the changepoint in elapsed days, and the root-mean-square residual before and after subtracting
+the fitted model. A fleet-level summary aggregates the per-buoy corrected root-mean-square residuals.
 
 ## §14 Revision History (Superseded — Not Binding)
 
@@ -314,107 +316,49 @@ leaving only the instrument's offset, its drift, and observation noise.
 
 ## §20 Statistical Methodology Background
 
-This section develops the statistical model that underlies the calibration so that an analyst can
-understand, reproduce, and defend the numbers the procedure produces. It is exposition; the binding
-constants it refers to live in the governing sections, and any concrete numbers used below for
-illustration are illustrative.
+This section develops the statistical model behind the calibration so that an analyst can reproduce and
+defend the numbers. It is exposition; the binding constants live in the governing sections.
 
-### 20.1 The forward model
+### 20.1 The change-point forward model
 
-Let a single calibrated mooring produce, at admitted timestamp index i, a converted reading c_i and a
-co-located reference reading m_i, both in physical units. Define the residual r_i = c_i − m_i. Let t_i
-be the elapsed time of that reading in days since the mission epoch. The programme models the residual
-as the sum of a constant offset a, a linear drift b acting on elapsed time, and zero-mean Gaussian
-observation noise:
+For a calibrated buoy, let the cleaned residual at admitted observation i be r_i — the converted reading
+minus its co-located reference, in physical units — observed at elapsed time t_i in days since the
+mission epoch. The residual is modelled as an additive offset, a baseline drift acting on elapsed time,
+and a drift change that acts only after the servicing changepoint t_c:
 
-    r_i = a + b · t_i + ε_i,    ε_i ~ Normal(0, σ²),
+    r_i = offset + drift * t_i + drift_change * max(0, t_i - t_c) + noise_i.
 
-where σ is the observation noise standard deviation for the mooring's sensor type, taken as known from
-the governing noise model. In matrix form, stack the residuals into a vector r of length n and build the
-design matrix X whose i-th row is (1, t_i). Then r = X θ + ε with θ = (a, b)ᵀ and ε ~ Normal(0, σ²I).
+Before the changepoint the slope is the baseline drift; after it the slope becomes drift plus
+drift_change. The changepoint t_c is the binding instant in section 10, the same for every buoy. The
+model is deliberately the simplest that captures a constant bias, a season-long drift, and the documented
+change in drift rate at servicing; no higher-order terms are part of the binding model.
 
-The forward model is deliberately the simplest one that captures the two failure modes the programme
-cares about: a sensor that reads systematically high or low (the offset) and a sensor whose error grows
-or shrinks over the season (the drift). Higher-order terms — curvature in time, dependence on the
-measured value itself — are not part of the binding model and are not estimated. An analyst who suspects
-such effects should raise them through the change-control process rather than adding terms ad hoc, since
-the verifier checks the binding model and nothing else.
+### 20.2 Heteroscedastic noise
 
-### 20.2 The prior
+The noise term is independent and Gaussian but not identically distributed: observation i has its own
+known standard deviation s_i, the measurement_std recorded with it in the database. Observation quality
+varies across the season, and the inversion must respect that by weighting each observation by the
+inverse of its variance. Treating the noise as a single constant — an unweighted fit — gives a different
+and incorrect estimate, because the noisier observations would then be allowed to pull the fit as hard as
+the precise ones.
 
-Each component of θ is given an independent Gaussian prior. Write the prior mean as m₀ = (a₀, b₀)ᵀ and
-the prior covariance as S₀ = diag(s_a², s_b²), where s_a is the offset prior standard deviation and s_b
-the drift prior standard deviation for the mooring's sensor type. Independence between the offset and
-the drift in the prior is a modelling choice: it states that, before seeing data, knowing a sensor's
-constant bias tells us nothing about how fast it drifts. The posterior will generally couple the two
-because the data couple them, but the prior does not impose a coupling.
+### 20.3 The prior and the posterior
 
-The priors are weakly informative. Their means are zero, expressing no prior belief that a sensor reads
-high rather than low or drifts up rather than down, and their standard deviations are wide enough that,
-over a full season of daily readings, the likelihood dominates wherever the record is intact. The role
-of the prior is then mainly to regularise moorings whose records are short — for instance a mooring that
-lost weeks to a quarantine — so that the estimate degrades gracefully rather than blowing up when the
-time base is thin.
+Each of the three parameters is given an independent Gaussian prior per sensor type, with the means and
+standard deviations fixed in section 11. Because the likelihood is Gaussian with known per-observation
+variances and the prior is Gaussian, the posterior over the three parameters is again Gaussian and
+available in closed form: it is the weighted, generalized-least-squares conjugate update of the prior by
+the inverse-variance-weighted data. The calibration reports this posterior — each parameter's mean and
+standard deviation and a central 95% credible interval at roughly the mean plus or minus 1.96 posterior
+standard deviations. Where a buoy's record is long and informative the data dominate the prior; where it
+is thin, for instance after exclusions, the estimate degrades gracefully toward the prior.
 
-### 20.3 The posterior
+### 20.4 Calibration quality
 
-Because the likelihood is Gaussian in θ with known noise and the prior is Gaussian, the posterior is
-Gaussian and available in closed form. Its covariance and mean are
-
-    S_n = ( S₀⁻¹ + Xᵀ X / σ² )⁻¹,
-    m_n = S_n ( S₀⁻¹ m₀ + Xᵀ r / σ² ).
-
-The posterior mean m_n is the calibration estimate: its first component is the estimated offset and its
-second the estimated drift. The posterior standard deviation of each parameter is the square root of
-the corresponding diagonal entry of S_n. These are the numbers the procedure reports.
-
-Two limiting cases are worth keeping in mind. When the record is long and clean, XᵀX/σ² overwhelms
-S₀⁻¹, the prior washes out, and m_n approaches the ordinary least-squares fit of residual against
-elapsed time. When the record is very short, S₀⁻¹ dominates, and m_n is pulled toward the prior mean of
-zero. The procedure therefore interpolates smoothly between "trust the data" and "fall back to the
-prior" according to how much information the record actually contains, which is exactly the behaviour a
-calibration of heterogeneous moorings needs.
-
-### 20.4 Credible intervals
-
-The central 95% credible interval for each parameter is the interval that contains 95% of the posterior
-probability symmetrically about the mean. For a Gaussian posterior this is the mean plus or minus the
-97.5th-percentile point of the standard normal distribution times the parameter's posterior standard
-deviation. The multiplier is approximately 1.96. The interval is a statement about the parameter given
-the data and the prior, not a statement about a long-run frequency of repeated experiments; in the
-Bayesian framing the parameter is the random quantity and the interval is fixed once the data are in.
-
-An analyst reading the output should expect the offset interval to be narrow for moorings with long
-clean records and wider for moorings whose records were truncated by exclusions, and should expect the
-drift interval to widen when the admitted observations span a shorter stretch of elapsed time, because
-the slope of a line is least well determined when the lever arm is short.
-
-### 20.5 Calibration quality
-
-The procedure reports two root-mean-square residual figures. The first is the root mean square of the
-raw residuals, before any correction, and measures how far the uncalibrated sensor sat from truth across
-the admitted record. The second is the root mean square of the corrected residuals, formed by
-subtracting the posterior offset and posterior drift contribution from each raw residual, and measures
-how much of that discrepancy the calibration explains. A well-behaved calibration reduces the
-root-mean-square residual substantially; the corrected figure should never exceed the uncorrected one by
-more than numerical noise, because subtracting the fitted line can only reduce the residual sum of
-squares relative to the best constant-plus-line model. If a mooring shows little reduction, that is
-informative: it means the offset-plus-drift model does not capture the mooring's behaviour, and the
-mooring should be flagged for engineering review rather than silently calibrated.
-
-### 20.6 Sensitivity and common pitfalls
-
-The estimate is sensitive to several choices that the governing sections fix and that an analyst must
-not vary. The unit conversion enters multiplicatively and directly scales the residual; using a
-superseded conversion rescales every residual and produces an offset and drift that are wrong by the
-ratio of the two conversions. The mission epoch sets the zero of elapsed time and therefore the meaning
-of the offset: move the epoch and the offset absorbs the drift accumulated between the two epochs, even
-though the drift itself is unchanged. The exclusion windows determine which observations enter the fit;
-admitting a window that should be excluded injects bad data, and excluding a window that should be
-admitted needlessly widens the posterior. The noise scale sets the balance between prior and likelihood;
-using a superseded noise value tilts that balance and biases the posterior toward or away from the
-prior. Each of these is a documented historical error mode, and each is the reason the governing
-sections state a single binding value for every constant.
+The procedure reports the root-mean-square residual before any correction and after subtracting the
+fitted offset, baseline drift, and drift-change terms. A well-behaved calibration reduces the
+root-mean-square substantially; a buoy whose corrected residual stays large is flagged for engineering
+review rather than trusted, because the change-point model has failed to explain its behaviour.
 
 ## §21 Historical Case-Study Library
 
@@ -840,48 +784,6 @@ Clock discipline matters because a drift estimate is a regression against time: 
 fast or slow would distort the elapsed-time axis and bias the drift. The programme's clocks are
 disciplined to a tolerance far finer than the daily cadence, so timing contributes negligibly to the
 uncertainty budget, and the calibration treats the timestamps as exact.
-
-## §36 Appendix D — Derivation of the Conjugate Posterior
-
-This appendix derives the closed-form posterior used by the procedure, for completeness and so that a
-reviewer can verify the implementation against the mathematics. The derivation is standard Bayesian
-linear regression with known noise variance and a Gaussian prior.
-
-Begin with the likelihood. Given parameters θ = (a, b)ᵀ and the design matrix X whose rows are (1, t),
-the residual vector r is modelled as Gaussian with mean Xθ and covariance σ²I, where σ is the sensor
-type's observation noise standard deviation and I is the identity of size n. The log-likelihood is, up
-to a constant independent of θ, minus one over two σ² times the squared norm of r minus Xθ. Expanding the
-square produces a quadratic form in θ whose curvature is XᵀX over σ² and whose linear term is Xᵀr over
-σ².
-
-Now introduce the prior. The prior on θ is Gaussian with mean m₀ and covariance S₀, where m₀ is the pair
-of prior means and S₀ is the diagonal matrix of prior variances. Its log-density is, up to a constant,
-minus one half times the quadratic form in θ minus m₀ with precision S₀ inverse.
-
-The log-posterior is the sum of the log-likelihood and the log-prior, again up to an additive constant.
-Collecting the quadratic and linear terms in θ, the posterior is Gaussian because the sum of two
-quadratics in θ is a quadratic in θ. The posterior precision — the inverse covariance — is the sum of the
-prior precision S₀ inverse and the data precision XᵀX over σ². Inverting gives the posterior covariance
-
-    S_n = ( S₀⁻¹ + XᵀX / σ² )⁻¹.
-
-The posterior mean is the posterior covariance times the sum of the linear terms, namely the prior
-contribution S₀ inverse times m₀ and the data contribution Xᵀr over σ²:
-
-    m_n = S_n ( S₀⁻¹ m₀ + Xᵀr / σ² ).
-
-These are the two expressions the procedure evaluates. The offset estimate is the first component of m_n
-and the drift estimate the second; the offset and drift posterior standard deviations are the square
-roots of the first and second diagonal entries of S_n. The 95% credible interval for each parameter is
-the posterior mean plus or minus approximately 1.96 posterior standard deviations, the 1.96 being the
-97.5th percentile of the standard normal distribution. Because the prior covariance is diagonal, the
-prior precision is also diagonal with entries the reciprocals of the prior variances, which is how the
-per-parameter prior standard deviations enter the computation.
-
-A useful check on any implementation is the no-prior limit: as the prior variances grow without bound the
-prior precision vanishes, S_n tends to σ² times the inverse of XᵀX, and m_n tends to the ordinary
-least-squares solution. An implementation that does not reproduce the least-squares fit in this limit has
-a sign or transpose error somewhere in the assembly of the normal equations.
 
 ## §37 Appendix E — Extended Glossary
 
@@ -1700,39 +1602,6 @@ day — degrees Celsius per day for temperature, decibars per day for pressure. 
 than seconds keeps the drift a number of convenient magnitude and the design matrix well scaled, as the
 numerical notes explain. The offset carries the channel's physical unit with no time dimension, since it is
 the bias at the epoch.
-
-## §76 Appendix N — Symbol-by-Symbol Numeric Walkthrough
-
-This walkthrough describes, in words, how the posterior is assembled for a generic mooring, so that an
-implementation can be checked term by term against the mathematics of Appendix D. It describes the
-computation conceptually and is not a code listing.
-
-Begin by assembling, over the mooring's admitted readings in timestamp order, the elapsed time of each
-reading in days and the residual of each reading in physical units. The design has two regressors per
-reading: a constant one and the elapsed time. The data precision contribution is the matrix of summed
-products of the regressors divided by the noise variance: its upper-left entry is the count of admitted
-readings divided by the noise variance, its off-diagonal entries are the sum of elapsed times divided by
-the noise variance, and its lower-right entry is the sum of squared elapsed times divided by the noise
-variance. The data information vector is the regressor-weighted residual sum divided by the noise
-variance: its first entry is the sum of residuals divided by the noise variance, and its second entry is
-the sum of elapsed-time-weighted residuals divided by the noise variance.
-
-The prior precision is diagonal: its upper-left entry is one over the squared offset prior standard
-deviation, and its lower-right entry is one over the squared drift prior standard deviation; the
-off-diagonal entries are zero because the prior treats offset and drift as independent. The prior
-information vector is the prior precision times the prior mean vector, which for zero-mean priors is the
-zero vector.
-
-The posterior precision is the sum of the prior precision and the data precision; the posterior
-covariance is its inverse. The posterior mean is the posterior covariance times the sum of the prior
-information vector and the data information vector. The first component of the posterior mean is the offset
-estimate and the second the drift estimate; the square roots of the first and second diagonal entries of
-the posterior covariance are their standard deviations; and each credible interval is the estimate plus or
-minus the standard-normal 97.5th-percentile multiple of its standard deviation. The uncorrected residual
-magnitude is the root mean square of the residuals, and the corrected residual magnitude is the root mean
-square of the residuals after subtracting the offset estimate and the elapsed-time-scaled drift estimate.
-Checking an implementation entry by entry against this description catches the transpose, sign, and
-scaling mistakes that are the usual culprits when a result looks wrong.
 
 ## §77 Appendix O — Index of Governing Constants and Their Downstream Use
 
@@ -2700,3 +2569,107 @@ the assumption. An analyst who understands these five assumptions, and the evide
 understands the precise conditions under which the calibration is valid, and can recognise the rare mooring or
 season for which one of the assumptions fails and escalation rather than routine calibration is the correct
 response.
+
+## §125 Appendix Y — Why Inverse-Variance Weighting Matters
+
+A recurring source of error in earlier seasons was treating every observation as equally trustworthy.
+Because each Sentinel observation now carries its own measurement standard deviation, and because that
+standard deviation varies substantially over a deployment, an unweighted fit and a correctly weighted fit
+do not merely differ in their reported uncertainties — they differ in the parameter estimates themselves.
+When the noisier observations happen to fall preferentially late in the season, an unweighted fit lets
+those late, imprecise points exert as much leverage on the slope as the early, precise ones, and the
+estimated drift is pulled toward the noise. The weighted estimate down-weights each observation in
+proportion to the inverse of its variance, so the precise observations dominate and the drift is
+recovered faithfully. The lesson the programme draws is blunt: a calibration that ignores the
+per-observation measurement standard deviation is not merely imprecise, it is biased, and the bias is not
+visible without comparing against a weighted reference. The measurement standard deviation is therefore
+not optional metadata; it is part of the likelihood, and the inversion must use it.
+
+A related pitfall is to weight by the standard deviation rather than by its square. The weight is the
+inverse of the variance, not the inverse of the standard deviation; confusing the two changes how
+aggressively the noisy observations are discounted and produces an estimate that is neither the unweighted
+nor the correctly weighted answer. Analysts are reminded that the weighting is by inverse variance.
+
+## §126 Appendix Z — Reading the Changepoint Correctly
+
+The change-point structure of the drift is the other place careful analysts diverge from careless ones.
+Before the servicing changepoint the residual climbs or falls at the baseline drift rate; after the
+changepoint the rate becomes the baseline drift plus the drift change. The drift change is therefore an
+increment to the slope, not a new absolute slope and not a step in the level — there is no discontinuity
+in the residual at the changepoint, only a change in its rate. An analyst who models the changepoint as a
+jump in the offset, rather than a kink in the slope, will misfit every buoy whose drift genuinely changed
+at servicing. An analyst who omits the changepoint entirely, forcing a single straight line through the
+whole season, will absorb the post-servicing slope change into a compromised single drift and leave a
+structured corrected residual that the quality check will flag.
+
+The changepoint is the same instant for every buoy, fixed at the servicing end, and it is expressed in
+the protocol as a timestamp; the inversion converts it to elapsed days exactly as it converts every
+observation timestamp. The hinge term — the days elapsed beyond the changepoint, floored at zero — is the
+third regressor of the model, alongside the constant and the elapsed-time term. Its prior is the
+drift-change prior of the governing prior section, and it is estimated jointly with the offset and the
+baseline drift, not in a separate second pass, because the three parameters are correlated given the data
+and a sequential fit would bias them.
+
+## §127 Appendix AA — Updated Failure-Mode Catalogue
+
+The current cycle's model adds two failure modes to the catalogue, both of which the quality checks are
+designed to catch. The first is the unweighted fit: an analyst who ignores the measurement standard
+deviation and fits ordinary least squares obtains a biased drift and drift change, and the discrepancy
+against the weighted reference exceeds tolerance. The second is the missing or mis-modelled changepoint:
+an analyst who fits a single slope, or who models the changepoint as a level jump rather than a slope
+kink, leaves structure in the corrected residual and produces parameter estimates that disagree with the
+reference. Both failure modes pass a superficial smoke test — the program runs, a posterior is produced —
+and are caught only by the independent recomputation that the verifier performs. The programme's guidance
+is that the inversion must be the weighted, three-parameter, change-point conjugate estimate exactly as
+the governing sections specify; any simpler model is a different, incorrect calculation that happens to
+produce numbers of the right shape.
+
+## §128 Appendix AB — Joint Estimation and Graceful Degradation
+
+The three calibration parameters are estimated jointly, in a single conjugate update that fuses the
+inverse-variance-weighted observations with the per-sensor priors. Joint estimation matters because the
+offset, the baseline drift, and the drift change are correlated given a finite record: the offset trades
+off against the baseline drift over the pre-changepoint span, and the baseline drift trades off against
+the drift change across the changepoint. A sequential procedure that fixed one parameter before fitting
+the next would propagate that correlation into a bias, which is why the programme insists on the single
+joint posterior rather than a staged fit.
+
+The priors also provide graceful degradation. A buoy whose record is thinned by exclusions — most
+sharply the southern unit, which loses both the fleet-wide servicing week and its own multi-week
+quarantine — carries less information about its parameters, especially the drift change, whose lever arm
+is the post-changepoint span. For such a buoy the posterior leans more on the prior and its credible
+intervals widen, which is the honest and intended behaviour: the estimate does not swing wildly on a thin
+record, it relaxes toward the weakly informative prior and reports its reduced confidence. A buoy with a
+long, clean, well-weighted record, by contrast, pins all three parameters tightly and the prior barely
+shows. The reviewer therefore expects the southern unit's drift-change interval to be the widest in the
+fleet, and treats that as a feature of the method rather than a defect of the buoy.
+
+## §129 Appendix AC — Worked Reasoning for a Single Buoy
+
+This appendix narrates, without prescribing code, how an analyst reasons about one buoy end to end, so
+the conceptual steps are concrete. Take a pressure buoy that reported daily through the season and was
+offline only for the fleet-wide servicing week. The analyst first draws that buoy's observations from the
+database in timestamp order, keeping the raw reading, the co-located reference, and the per-observation
+measurement standard deviation. The fleet-wide exclusion removes the servicing week; no buoy-specific
+window applies to this unit. Each surviving raw reading is multiplied by the pressure unit conversion to
+land in decibars, the reference is subtracted to form the residual, and the timestamp is converted to
+elapsed days from the mission epoch.
+
+With the cleaned series in hand, the analyst recognises three things the residual must be explained by: a
+constant offset present from the start, a baseline drift that accumulates with elapsed days, and a change
+in that drift rate after the servicing changepoint. The analyst forms the elapsed-time term and the
+post-changepoint hinge term — the days beyond the changepoint, floored at zero — and notes that the noise
+on each residual is the measurement standard deviation carried through from the database, which varies
+across the season and must weight the fit. The analyst then combines those inverse-variance weights with
+the pressure priors on the offset, the baseline drift, and the drift change, and reads off the joint
+posterior: three means, three standard deviations, and three credible intervals. Finally the analyst
+checks that subtracting the fitted offset, baseline drift, and drift-change terms collapses the residual
+to a small, structureless band — the corrected root-mean-square — confirming the model has explained the
+buoy's behaviour. If instead a clear bend or trend remained, the analyst would suspect a missing or
+mis-placed changepoint, or an unweighted fit, and would revisit the method before trusting the numbers.
+
+The same reasoning applies to every calibrated buoy, with the southern temperature unit additionally
+losing its multi-week quarantine to exclusion and therefore carrying the widest intervals, especially on
+the drift change whose post-changepoint lever arm is shortened most by that quarantine. The fleet summary
+then collects each buoy's corrected root-mean-square into a single fleet indicator that should be small
+and stable when every buoy has been calibrated correctly.

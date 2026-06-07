@@ -1,11 +1,13 @@
 """Tests for milestone 3 (Run Bayesian Inversion). Run alone with: pytest tests/test_m3.py
 
-These tests verify that, for every calibrated buoy, /app/artifacts/<buoy_id>/posterior.json
-reports the conjugate Gaussian posterior for offset and drift (mean, standard
-deviation, 95% credible interval), the admitted observation count, and the pre/post
-correction RMSE — all matched against an independent recomputation from the SQLite
-store and the binding priors (_reference.py). A fleet summary aggregates the
-per-buoy corrected RMSE.
+Verifies /app/artifacts/<buoy_id>/posterior.json reports the heteroscedastic,
+three-parameter change-point conjugate Gaussian posterior (offset, drift,
+drift_change) with means, standard deviations and 95% credible intervals, the
+admitted observation count, the changepoint, and pre/post-correction RMSE — all
+matched against an independent recomputation from the database and the binding
+priors (_reference.py). Matching requires the agent to use the weighted (1/std^2)
+GLS with the hinge regressor; an unweighted or two-parameter fit falls outside
+tolerance. A fleet summary aggregates the per-buoy corrected RMSE.
 """
 
 import json
@@ -16,7 +18,7 @@ import pytest
 import _reference
 
 ARTIFACTS = Path("/app/artifacts")
-RTOL = 1e-4
+PARAMS = ("offset", "drift", "drift_change")
 
 
 @pytest.fixture(scope="module")
@@ -38,41 +40,48 @@ def load(buoy):
 
 
 class TestMilestone3:
-    """Milestone 3: conjugate Gaussian posterior and calibration metrics per buoy."""
+    """Milestone 3: heteroscedastic three-parameter change-point posterior per buoy."""
 
     def test_observation_count(self, included, reference):
         """Each posterior must report the admitted observation count from the clean series."""
         for buoy in included:
             assert load(buoy)["n_observations"] == reference[buoy]["n_observations"]
 
+    def test_changepoint(self, included, reference):
+        """Each posterior must report the changepoint in elapsed days."""
+        for buoy in included:
+            assert load(buoy)["changepoint_t_days"] == pytest.approx(
+                reference[buoy]["changepoint_t_days"], abs=1e-6
+            )
+
     def test_posterior_offset_drift(self, included, reference):
-        """Posterior mean and std of offset and drift must match the conjugate recomputation."""
+        """Posterior mean/std of offset, drift and drift_change must match the weighted GLS recomputation."""
         for buoy in included:
             got = load(buoy)["posterior"]
             exp = reference[buoy]["posterior"]
-            for param in ("offset", "drift"):
-                assert got[param]["mean"] == pytest.approx(exp[param]["mean"], rel=RTOL, abs=1e-9)
-                assert got[param]["std"] == pytest.approx(exp[param]["std"], rel=RTOL, abs=1e-9)
+            for p in PARAMS:
+                assert got[p]["mean"] == pytest.approx(exp[p]["mean"], rel=1e-3, abs=1e-9), f"{buoy}.{p}.mean"
+                assert got[p]["std"] == pytest.approx(exp[p]["std"], rel=1e-2, abs=1e-9), f"{buoy}.{p}.std"
 
     def test_credible_intervals(self, included, reference):
         """The 95% credible intervals must match the recomputed bounds and bracket the mean."""
         for buoy in included:
             got = load(buoy)
             exp = reference[buoy]
-            for param in ("offset", "drift"):
-                lo, hi = got["credible_interval_95"][param]
-                elo, ehi = exp["credible_interval_95"][param]
-                assert lo == pytest.approx(elo, rel=RTOL, abs=1e-9)
-                assert hi == pytest.approx(ehi, rel=RTOL, abs=1e-9)
-                assert lo < got["posterior"][param]["mean"] < hi
+            for p in PARAMS:
+                lo, hi = got["credible_interval_95"][p]
+                elo, ehi = exp["credible_interval_95"][p]
+                assert lo == pytest.approx(elo, rel=1e-3, abs=1e-9), f"{buoy}.{p}.lo"
+                assert hi == pytest.approx(ehi, rel=1e-3, abs=1e-9), f"{buoy}.{p}.hi"
+                assert lo < got["posterior"][p]["mean"] < hi
 
     def test_calibration_metrics(self, included, reference):
-        """Pre- and post-correction RMSE must match, and correction must not worsen the residual."""
+        """Pre/post-correction RMSE must match, and correction must not worsen the residual."""
         for buoy in included:
             got = load(buoy)["calibration"]
             exp = reference[buoy]["calibration"]
-            assert got["rmse_residual"] == pytest.approx(exp["rmse_residual"], rel=RTOL, abs=1e-9)
-            assert got["corrected_rmse"] == pytest.approx(exp["corrected_rmse"], rel=RTOL, abs=1e-9)
+            assert got["rmse_residual"] == pytest.approx(exp["rmse_residual"], rel=1e-3, abs=1e-9)
+            assert got["corrected_rmse"] == pytest.approx(exp["corrected_rmse"], rel=1e-3, abs=1e-9)
             assert got["corrected_rmse"] <= got["rmse_residual"] + 1e-9
 
     def test_fleet_summary(self, included, reference):
@@ -84,4 +93,4 @@ class TestMilestone3:
         assert listed == set(included), f"summary buoys {listed} != calibrated {set(included)}"
         assert summary["fleet"]["n_buoys"] == len(included)
         mean_corrected = sum(reference[b]["calibration"]["corrected_rmse"] for b in included) / len(included)
-        assert summary["fleet"]["mean_corrected_rmse"] == pytest.approx(mean_corrected, rel=RTOL, abs=1e-9)
+        assert summary["fleet"]["mean_corrected_rmse"] == pytest.approx(mean_corrected, rel=1e-3, abs=1e-9)

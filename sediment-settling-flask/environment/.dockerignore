@@ -1,0 +1,14 @@
+# Build context hygiene.
+.git
+.gitignore
+.env
+**/__pycache__/
+**/*.pyc
+**/*.pyo
+**/.pytest_cache/
+**/.ruff_cache/
+.ipynb_checkpoints/
+.DS_Store
+*.log
+solution/
+tests/

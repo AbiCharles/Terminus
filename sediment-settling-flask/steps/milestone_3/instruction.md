@@ -1,0 +1,1 @@
+Milestone 3: fit the settling model from `/app/spec.md` to the observations from milestone 2 and write `/app/output/report.json`. Report the fitted parameters and their 95% confidence intervals, the derived initial settling velocity and Stokes effective diameter, and the residual metrics, all exactly as the spec defines them.

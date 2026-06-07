@@ -1,6 +1,11 @@
 #!/bin/bash
 set -uo pipefail
 
+if [ "$PWD" = "/" ]; then
+  echo "Error: No working directory set." >&2
+  exit 1
+fi
+
 # Verifier-only test dependencies are staged as wheels in the image; install
 # them offline (no network) from that wheel directory at test time. The C
 # toolchain (gcc) used to build the allocator under sanitizers is also part of

@@ -1,7 +1,11 @@
+.git
+.gitignore
 **/__pycache__/
-*.pyc
-*.pyo
-*.log
-.DS_Store
-.pytest_cache/
-.ruff_cache/
+**/*.pyc
+**/*.pyo
+**/*.log
+**/.DS_Store
+**/.pytest_cache/
+**/.mypy_cache/
+**/.ruff_cache/
+**/node_modules/

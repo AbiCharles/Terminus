@@ -131,7 +131,7 @@ def clean_series(buoy_id, db_path=DB_PATH):
         ).fetchall()
     finally:
         con.close()
-    out = {k: [] for k in ("timestamp", "t_days", "converted_value", "reference_value", "residual", "measurement_std")}
+    out = {k: [] for k in ("timestamp", "t_days", "converted_value", "reference_value", "residual", "measurement_std", "sensor_type")}
     for ts, raw, ref, std in rows:
         ts_dt = _parse(ts)
         if _is_excluded(buoy_id, ts_dt):
@@ -143,7 +143,16 @@ def clean_series(buoy_id, db_path=DB_PATH):
         out["reference_value"].append(ref)
         out["residual"].append(converted - ref)
         out["measurement_std"].append(std)
+        out["sensor_type"].append(sensor_type)
     return out
+
+
+def accepted(buoy_id, db_path=DB_PATH):
+    """Acceptance gate (notebook §13): a buoy's calibration is accepted — and its
+    model registered — only if its drift_change is statistically resolved, i.e. the
+    95% credible interval for drift_change excludes zero."""
+    lo, hi = posterior(buoy_id, db_path)["credible_interval_95"]["drift_change"]
+    return not (lo <= 0.0 <= hi)
 
 
 def posterior(buoy_id, db_path=DB_PATH):

@@ -18,7 +18,7 @@ import pytest
 import _reference
 
 ARTIFACTS = Path("/app/artifacts")
-EXPECTED_HEADER = ["timestamp", "t_days", "converted_value", "reference_value", "residual", "measurement_std"]
+EXPECTED_HEADER = ["timestamp", "t_days", "converted_value", "reference_value", "residual", "measurement_std", "sensor_type"]
 
 
 @pytest.fixture(scope="module")
@@ -58,6 +58,7 @@ class TestMilestone2:
                 got = np.array([float(r[col]) for r in rows], dtype=np.float64)
                 exp = np.array(ref[key], dtype=np.float64)
                 assert np.allclose(got, exp, rtol=1e-6, atol=1e-9), f"{buoy} {key} differs from reference"
+            assert [r[6] for r in rows] == ref["sensor_type"], f"{buoy} sensor_type column differs from reference"
 
     def test_exclusion_windows_applied(self, included):
         """No admitted timestamp may fall inside an exclusion window for that buoy."""

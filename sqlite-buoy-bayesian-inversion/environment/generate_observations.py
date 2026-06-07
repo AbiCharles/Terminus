@@ -39,13 +39,17 @@ BASE_STD = {"temperature": 0.05, "pressure": 0.2, "salinity": 0.01}
 # and the retired unit (B006) are distractors. Each calibrated buoy has a true
 # offset, a baseline drift, and a post-changepoint drift change.
 BUOYS = [
-    {"buoy_id": "B001", "name": "Sentinel-North", "sensor_type": "temperature", "status": "active", "raw_units": "counts", "offset": 0.30, "drift": 0.0015, "drift_change": -0.0025},
+    # drift_change is the post-changepoint slope increment. Three buoys have a
+    # clearly resolved change (CI excludes zero -> ACCEPTED by the §13 gate); two
+    # (B003, B007) have no post-servicing change (drift_change 0 -> CI includes
+    # zero -> REJECTED), so the registry gate partitions the fleet non-trivially.
+    {"buoy_id": "B001", "name": "Sentinel-North", "sensor_type": "temperature", "status": "active", "raw_units": "counts", "offset": 0.30, "drift": 0.0015, "drift_change": -0.0080},
     {"buoy_id": "B002", "name": "Sentinel-East", "sensor_type": "pressure", "status": "active", "raw_units": "counts", "offset": -1.50, "drift": 0.030, "drift_change": -0.050},
-    {"buoy_id": "B003", "name": "Sentinel-South", "sensor_type": "temperature", "status": "active", "raw_units": "counts", "offset": 0.45, "drift": -0.0010, "drift_change": 0.0030},
+    {"buoy_id": "B003", "name": "Sentinel-South", "sensor_type": "temperature", "status": "active", "raw_units": "counts", "offset": 0.45, "drift": -0.0010, "drift_change": 0.0},
     {"buoy_id": "B004", "name": "Sentinel-West", "sensor_type": "pressure", "status": "active", "raw_units": "counts", "offset": 2.20, "drift": -0.020, "drift_change": 0.040},
     {"buoy_id": "B005", "name": "Halocline-1", "sensor_type": "salinity", "status": "active", "raw_units": "counts", "offset": 0.10, "drift": 0.001, "drift_change": 0.0},
     {"buoy_id": "B006", "name": "Sentinel-Relic", "sensor_type": "temperature", "status": "retired", "raw_units": "counts", "offset": 0.90, "drift": 0.004, "drift_change": 0.0},
-    {"buoy_id": "B007", "name": "Sentinel-Drift", "sensor_type": "pressure", "status": "active", "raw_units": "counts", "offset": 0.80, "drift": 0.015, "drift_change": -0.030},
+    {"buoy_id": "B007", "name": "Sentinel-Drift", "sensor_type": "pressure", "status": "active", "raw_units": "counts", "offset": 0.80, "drift": 0.015, "drift_change": 0.0},
 ]
 
 

@@ -117,7 +117,7 @@ def clean_series(con, buoy_id, sensor_type, protocol):
         "WHERE buoy_id = ? ORDER BY timestamp",
         (buoy_id,),
     ).fetchall()
-    s = {k: [] for k in ("timestamp", "t_days", "converted_value", "reference_value", "residual", "measurement_std")}
+    s = {k: [] for k in ("timestamp", "t_days", "converted_value", "reference_value", "residual", "measurement_std", "sensor_type")}
     for ts, raw, ref, std in rows:
         ts_dt = _parse_ts(ts)
         if _excluded(buoy_id, ts_dt, intervals):
@@ -129,6 +129,7 @@ def clean_series(con, buoy_id, sensor_type, protocol):
         s["reference_value"].append(ref)
         s["residual"].append(converted - ref)
         s["measurement_std"].append(std)
+        s["sensor_type"].append(sensor_type)
     return s
 
 
@@ -173,7 +174,7 @@ def compute_posterior(series, sensor_type, protocol):
 def write_clean_csv(path, series):
     with open(path, "w", newline="") as fh:
         writer = csv.writer(fh)
-        writer.writerow(["timestamp", "t_days", "converted_value", "reference_value", "residual", "measurement_std"])
+        writer.writerow(["timestamp", "t_days", "converted_value", "reference_value", "residual", "measurement_std", "sensor_type"])
         for i in range(len(series["timestamp"])):
             writer.writerow([
                 series["timestamp"][i],
@@ -182,6 +183,7 @@ def write_clean_csv(path, series):
                 repr(series["reference_value"][i]),
                 repr(series["residual"][i]),
                 repr(series["measurement_std"][i]),
+                series["sensor_type"][i],
             ])
 
 
@@ -220,6 +222,8 @@ def main(argv=None):
             import mlflow
             import mlflow.sklearn
             from sklearn.linear_model import LinearRegression
+            from sklearn.pipeline import Pipeline
+            from sklearn.preprocessing import StandardScaler
 
             mlflow.set_tracking_uri(TRACKING_URI)
             mlflow.set_experiment(EXPERIMENT_NAME)
@@ -229,7 +233,7 @@ def main(argv=None):
             except mlflow.exceptions.MlflowException:
                 pass
 
-            summary = {"buoys": [], "fleet": {}}
+            summary = {"buoys": [], "accepted": [], "rejected": [], "fleet": {}}
             for buoy_id, sensor_type in buoys:
                 target = os.path.join(args.output_dir, buoy_id)
                 os.makedirs(target, exist_ok=True)
@@ -239,17 +243,23 @@ def main(argv=None):
                 with open(os.path.join(target, "posterior.json"), "w") as fh:
                     json.dump(result, fh, indent=2)
 
-                # Build the deployable drift-correction model: given features
-                # [t_days, hinge] it predicts the correction offset + drift*t +
-                # drift_change*hinge from the posterior means.
+                post = result["posterior"]
+                # §13 acceptance gate: register only buoys whose drift_change is
+                # statistically resolved (its 95% credible interval excludes zero).
+                dlo, dhi = result["credible_interval_95"]["drift_change"]
+                is_accepted = not (dlo <= 0.0 <= dhi)
+
+                # Deployable drift-correction model: a Pipeline that, from features
+                # [t_days, hinge], predicts offset + drift*t + drift_change*hinge.
                 t = np.array(series["t_days"], dtype=np.float64)
                 hinge = np.maximum(0.0, t - result["changepoint_t_days"])
-                post = result["posterior"]
                 y = post["offset"]["mean"] + post["drift"]["mean"] * t + post["drift_change"]["mean"] * hinge
-                model = LinearRegression().fit(np.column_stack([t, hinge]), y)
+                model = Pipeline([("scale", StandardScaler()), ("linear", LinearRegression())])
+                model.fit(np.column_stack([t, hinge]), y)
 
                 with mlflow.start_run(run_name=buoy_id):
                     mlflow.set_tag("buoy_id", buoy_id)
+                    mlflow.set_tag("status", "accepted" if is_accepted else "rejected")
                     mlflow.log_param("sensor_type", sensor_type)
                     mlflow.log_param("n_observations", result["n_observations"])
                     mlflow.log_param("changepoint_t_days", result["changepoint_t_days"])
@@ -257,23 +267,30 @@ def main(argv=None):
                         mlflow.log_metric(f"{p}_mean", post[p]["mean"])
                         mlflow.log_metric(f"{p}_std", post[p]["std"])
                     mlflow.log_metric("corrected_rmse", result["calibration"]["corrected_rmse"])
-                    info = mlflow.sklearn.log_model(model, name="calibration_model")
-                version = mlflow.register_model(info.model_uri, REGISTERED_MODEL)
-                client.set_registered_model_alias(REGISTERED_MODEL, buoy_id, version.version)
+                    if is_accepted:
+                        info = mlflow.sklearn.log_model(model, name="calibration_model")
+                if is_accepted:
+                    version = mlflow.register_model(info.model_uri, REGISTERED_MODEL)
+                    client.set_registered_model_alias(REGISTERED_MODEL, buoy_id, version.version)
+                    summary["accepted"].append(buoy_id)
+                else:
+                    summary["rejected"].append(buoy_id)
 
                 summary["buoys"].append({
                     "buoy_id": buoy_id,
                     "sensor_type": sensor_type,
+                    "status": "accepted" if is_accepted else "rejected",
                     "n_observations": result["n_observations"],
                     "offset_mean": post["offset"]["mean"],
                     "drift_mean": post["drift"]["mean"],
                     "drift_change_mean": post["drift_change"]["mean"],
                     "corrected_rmse": result["calibration"]["corrected_rmse"],
                 })
-                print(f"invert: {buoy_id}")
+                print(f"invert: {buoy_id} ({'accepted' if is_accepted else 'rejected'})")
             rmses = [b["corrected_rmse"] for b in summary["buoys"]]
             summary["fleet"] = {
                 "n_buoys": len(summary["buoys"]),
+                "n_accepted": len(summary["accepted"]),
                 "mean_corrected_rmse": float(np.mean(rmses)) if rmses else 0.0,
             }
             with open(os.path.join(args.output_dir, "summary.json"), "w") as fh:

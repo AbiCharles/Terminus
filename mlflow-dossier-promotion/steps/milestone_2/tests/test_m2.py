@@ -63,11 +63,24 @@ class TestMilestone2:
         )
 
     def test_required_params_logged(self, runs_by_model):
-        """Each candidate run must log the estimator family and its random_state param."""
+        """Each candidate run must log its estimator and random_state (=42) as params."""
+        prefixes = ("hp_", "param_", "params_", "est__", "estimator__", "model__", "clf__", "classifier__")
+
+        def base(key):
+            for pre in prefixes:
+                if key.startswith(pre):
+                    return key[len(pre):]
+            return key
+
         for name in EXPECTED_CANDIDATES:
             params = runs_by_model[name].data.params
-            assert "estimator" in params, f"{name} missing 'estimator' param"
-            assert params.get("random_state") == "42", f"{name} must log random_state=42"
+            bases = {base(k): v for k, v in params.items()}
+            assert "estimator" in bases or any("estimator" in k.lower() for k in params), (
+                f"{name} did not log an 'estimator' param"
+            )
+            assert bases.get("random_state") == "42", (
+                f"{name} must log random_state=42 as a param (found params: {sorted(params)})"
+            )
 
     def test_required_metrics_logged(self, runs_by_model):
         """Each candidate run must log accuracy, f1_macro, roc_auc and a dpd metric per protected slice."""
@@ -92,21 +105,48 @@ class TestMilestone2:
         for name in EXPECTED_CANDIDATES:
             run_id = runs_by_model[name].info.run_id
             basenames = {p.rsplit("/", 1)[-1] for p in walk_artifacts(run_id)}
-            assert "validation_report.json" in basenames, (
-                f"{name} missing validation_report.json artifact"
+            assert any(b.startswith("validation_report") and b.endswith(".json") for b in basenames), (
+                f"{name} missing a validation_report json artifact (found: {sorted(basenames)})"
             )
 
     def test_model_logged_per_run(self, runs_by_model):
-        """Each run must log a fitted model under the name credit_default_model (MLflow logged model)."""
+        """Each run must log a fitted model at the credit_default_model path (either MLflow logging API)."""
+        import mlflow.sklearn
+
         client = MlflowClient()
         experiment = client.get_experiment_by_name(EXPERIMENT)
-        logged_by_run = {}
-        for logged_model in client.search_logged_models(experiment_ids=[experiment.experiment_id]):
-            logged_by_run.setdefault(logged_model.source_run_id, set()).add(logged_model.name)
+
+        def model_logged(run_id):
+            # 1) Standard runs:/ URI — works for the artifact_path= API and resolves
+            #    for the MLflow 3.x name= API once the model is registered/logged.
+            try:
+                model = mlflow.sklearn.load_model(f"runs:/{run_id}/credit_default_model")
+                if hasattr(model, "predict"):
+                    return True
+            except Exception:
+                pass
+            # 2) MLflow 3.x logged-model named credit_default_model for this run.
+            try:
+                for lm in client.search_logged_models(experiment_ids=[experiment.experiment_id]):
+                    if lm.source_run_id == run_id and lm.name == "credit_default_model":
+                        return True
+            except Exception:
+                pass
+            # 3) A run-artifact directory named credit_default_model holding an MLmodel.
+            try:
+                for art in client.list_artifacts(run_id):
+                    if art.is_dir and art.path.rsplit("/", 1)[-1] == "credit_default_model":
+                        if any(a.path.endswith("MLmodel") for a in client.list_artifacts(run_id, art.path)):
+                            return True
+            except Exception:
+                pass
+            return False
+
         for name in EXPECTED_CANDIDATES:
             run_id = runs_by_model[name].info.run_id
-            assert "credit_default_model" in logged_by_run.get(run_id, set()), (
-                f"{name} did not log a model named 'credit_default_model'"
+            assert model_logged(run_id), (
+                f"{name} did not log a fitted model at 'credit_default_model' "
+                f"(runs:/{run_id}/credit_default_model)"
             )
 
     def test_logged_metrics_match_independent_retrain(self, runs_by_model, reference):

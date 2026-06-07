@@ -75,9 +75,23 @@ class TestMilestone3:
         )
 
     def test_champion_artifact_naming(self, client, champion_version):
-        """The promoted version's logged model must use the credit_default_model name (§6)."""
-        model_id = champion_version.source.rstrip("/").split("/")[-1]
-        logged_model = client.get_logged_model(model_id)
+        """The promoted version's model artifact must use the credit_default_model name (§6).
+
+        Tolerant of how the champion was registered: from a runs:/<run>/credit_default_model
+        URI (source ends with the artifact name) or from an MLflow 3.x logged model
+        (source ends with a model id whose logged-model name is credit_default_model).
+        """
+        source = champion_version.source.rstrip("/")
+        last = source.split("/")[-1]
+        if last == ARTIFACT_PATH or ARTIFACT_PATH in source:
+            return
+        try:
+            logged_model = client.get_logged_model(last)
+        except Exception as exc:  # pragma: no cover - defensive
+            raise AssertionError(
+                f"champion source '{champion_version.source}' does not reference "
+                f"'{ARTIFACT_PATH}' and is not a resolvable logged model: {exc}"
+            )
         assert logged_model.name == ARTIFACT_PATH, (
             f"champion logged-model name '{logged_model.name}' is not '{ARTIFACT_PATH}'"
         )

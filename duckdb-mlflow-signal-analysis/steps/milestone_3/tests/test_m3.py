@@ -7,6 +7,7 @@ an independent recomputation from the database (see _reference.py) so fabricated
 mis-computed values are rejected.
 """
 
+import subprocess
 from pathlib import Path
 
 import mlflow
@@ -128,6 +129,38 @@ class TestMilestone3:
 
         for exp in valid_ids:
             run_id = runs_by_experiment[exp].info.run_id
-            basenames = {p.rsplit("/", 1)[-1] for p in walk(run_id)}
-            assert "measurements.csv" in basenames, f"{exp} missing measurements.csv artifact"
-            assert "analysis.json" in basenames, f"{exp} missing analysis.json artifact"
+            paths = set(walk(run_id))
+            assert "analysis/measurements.csv" in paths, (
+                f"{exp} measurements.csv must be logged under the analysis/ artifact path; got {sorted(paths)}"
+            )
+            assert "analysis/analysis.json" in paths, (
+                f"{exp} analysis.json must be logged under the analysis/ artifact path; got {sorted(paths)}"
+            )
+
+    def test_runs_named_after_experiment(self, runs_by_experiment, valid_ids):
+        """Each run must be named after its experiment id, not merely carry the experiment_id tag."""
+        for exp in valid_ids:
+            run = runs_by_experiment[exp]
+            assert run.info.run_name == exp, (
+                f"run for {exp} must be named '{exp}', got '{run.info.run_name}'"
+            )
+
+    def test_experiment_id_scopes_track(self, valid_ids):
+        """`track --experiment-id X` must record exactly X (snapshot diff on the store)."""
+        mlflow.set_tracking_uri(TRACKING_URI)
+        client = MlflowClient()
+        experiment = client.get_experiment_by_name(EXPERIMENT_NAME)
+        before = {r.info.run_id for r in client.search_runs([experiment.experiment_id])}
+        target = valid_ids[0]
+        subprocess.run(
+            ["python", "/app/signal_analysis.py", "track", "--experiment-id", target],
+            check=True,
+        )
+        new = [r for r in client.search_runs([experiment.experiment_id]) if r.info.run_id not in before]
+        assert len(new) == 1, (
+            f"track --experiment-id {target} must create exactly one new run, created {len(new)}"
+        )
+        assert new[0].data.tags.get("experiment_id") == target, (
+            f"scoped track created a run for the wrong experiment: {new[0].data.tags.get('experiment_id')}"
+        )
+        assert new[0].info.run_name == target

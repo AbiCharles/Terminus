@@ -8,6 +8,7 @@ sample rate and sample count, and that non-valid experiments produced no output.
 
 import csv
 import json
+import subprocess
 from pathlib import Path
 
 import numpy as np
@@ -83,3 +84,41 @@ class TestMilestone1:
             assert not (ARTIFACTS / exp).exists(), (
                 f"{exp} is not valid and must not have an output directory"
             )
+
+    def test_experiment_id_flag_scopes_output(self, valid_ids, tmp_path):
+        """A --experiment-id flag must scope output to exactly the requested experiment."""
+        target = valid_ids[0]
+        subprocess.run(
+            ["python", "/app/signal_analysis.py", "query",
+             "--experiment-id", target, "--output-dir", str(tmp_path)],
+            check=True,
+        )
+        assert (tmp_path / target / "measurements.csv").exists(), (
+            f"scoped run did not produce {target}"
+        )
+        for other in valid_ids[1:]:
+            assert not (tmp_path / other).exists(), (
+                f"{other} was produced even though only {target} was requested"
+            )
+
+    def test_experiment_id_nonexistent_skipped(self, tmp_path):
+        """An unknown --experiment-id must be skipped silently, producing no output."""
+        subprocess.run(
+            ["python", "/app/signal_analysis.py", "query",
+             "--experiment-id", "NOSUCH", "--output-dir", str(tmp_path)],
+            check=True,
+        )
+        assert not any(tmp_path.iterdir()), "an unknown experiment id must produce no output"
+
+    def test_experiment_id_invalid_skipped(self, tmp_path):
+        """A requested but non-valid experiment id must be skipped, producing no output."""
+        nonvalid = _reference.nonvalid_experiment_ids()
+        assert nonvalid, "expected a non-valid experiment to exercise the skip path"
+        subprocess.run(
+            ["python", "/app/signal_analysis.py", "query",
+             "--experiment-id", nonvalid[0], "--output-dir", str(tmp_path)],
+            check=True,
+        )
+        assert not (tmp_path / nonvalid[0]).exists(), (
+            f"non-valid {nonvalid[0]} must not produce output even when explicitly requested"
+        )

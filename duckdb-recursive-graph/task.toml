@@ -1,0 +1,71 @@
+# Task configuration schema version
+version = "2.0"
+
+# Task metadata (author, difficulty, categorization)
+[metadata]
+author_name = "Abigail Charles"
+author_email = "warriorp8@gmail.com"
+difficulty = "hard"
+category = "data-processing"
+# Options for subcategories are: "long_context", "tool_specific", "api_integration", "db_interaction", "ui_building"
+subcategories = ["db_interaction", "tool_specific"]
+# Total milestone count — must match the number of [[steps]] blocks below
+number_of_milestones = 3
+# Size of the codebase: minimal -> 0-20 files, small -> 20+ files, large -> 200+ files
+codebase_size = "minimal"
+# Coding languages used in the oracle solution or required by the agent
+languages = ["sql", "python"]
+# For tool_specific, api_integration, and db_interaction subcategories, please include specific tool, api framework, or database software
+tags = ["duckdb", "recursive-cte", "graph", "sql", "window-functions"]
+# Estimated time to complete (minutes)
+expert_time_estimate_min = 120
+junior_time_estimate_min = 240
+
+# The agent connects to the DuckDB database at /app/graph.duckdb (tables `nodes`,
+# `edges` (a directed graph that contains cycles), and `activations` (timestamped
+# events)) and follows the contract in /app/spec.md. Milestone 1 builds the
+# transitive-reachability table `reachability` with a recursive CTE that
+# terminates on cycles. Milestone 2 builds the single-source minimum-hop distance
+# table `shortest_paths` from the designated source node. Milestone 3 builds the
+# `sessions` table by grouping each node's activations into sessions split on
+# gaps strictly greater than 30 minutes. All outputs are written back into
+# /app/graph.duckdb.
+
+# Sandbox environment limits — applied across all milestones (the same container is shared)
+[environment]
+allow_internet = false
+build_timeout_sec = 1200.0
+cpus = 4
+memory_mb = 8192
+storage_mb = 12288
+workdir = "/app"
+
+# Milestone 1 — Transitive Reachability: recursive CTE closure that handles cycles
+[[steps]]
+name = "milestone_1"
+
+[steps.agent]
+timeout_sec = 1800.0
+
+[steps.verifier]
+timeout_sec = 600.0
+
+# Milestone 2 — Single-Source Shortest Paths: minimum hop distance via bounded recursion
+[[steps]]
+name = "milestone_2"
+
+[steps.agent]
+timeout_sec = 1800.0
+
+[steps.verifier]
+timeout_sec = 600.0
+
+# Milestone 3 — Activation Sessionization: gaps-and-islands over the timestamped log
+[[steps]]
+name = "milestone_3"
+
+[steps.agent]
+timeout_sec = 1800.0
+
+[steps.verifier]
+timeout_sec = 600.0

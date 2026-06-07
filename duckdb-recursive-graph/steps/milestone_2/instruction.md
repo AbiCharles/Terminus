@@ -1,0 +1,1 @@
+Milestone 2: build the `shortest_paths` table defined in `/app/spec.md` — the minimum number of edges (hops) from the source node `node_id = 1` to every node reachable from it, including the source itself at distance 0. Write it back into `/app/graph.duckdb`.

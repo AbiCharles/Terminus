@@ -6,14 +6,13 @@ RUN apt-get update \
         asciinema \
     && rm -rf /var/lib/apt/lists/*
 
-# Agent + verifier runtime dependencies (pinned for reproducibility). These are
-# needed both by the agent (to train/log models) and by the verifier (to retrain
-# the reference candidates), so they are installed into the image.
-RUN python -m pip install --no-cache-dir \
-    mlflow==3.13.0 \
-    scikit-learn==1.9.0 \
-    pandas==2.3.3 \
-    numpy==2.4.6
+# Agent + verifier runtime dependencies. These are needed both by the agent (to
+# train/log models) and by the verifier (to retrain the reference candidates), so
+# they are installed into the image. Installed from a fully hashed lockfile
+# (requirements.in -> requirements.lock via uv) so transitive deps are pinned and
+# the build is reproducible.
+COPY requirements.lock /tmp/requirements.lock
+RUN python -m pip install --no-cache-dir --require-hashes --no-deps -r /tmp/requirements.lock
 
 # Verifier-ONLY test dependencies (pytest stack) are staged as wheels rather than
 # installed, so the agent environment does not carry test tooling. tests/test.sh

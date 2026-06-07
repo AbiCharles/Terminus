@@ -9,6 +9,7 @@ differences while still rejecting a missing or mis-scaled interval.
 """
 
 import json
+import subprocess
 from pathlib import Path
 
 import pytest
@@ -110,3 +111,26 @@ class TestMilestone2:
             )
             assert abs(low - ref_low) <= 0.2 * ref_width, f"{exp} CI lower bound is off"
             assert abs(high - ref_high) <= 0.2 * ref_width, f"{exp} CI upper bound is off"
+
+    def test_experiment_id_flag_scopes_output(self, valid_ids, tmp_path):
+        """analyze --experiment-id must scope analysis.json output to the requested experiment."""
+        target = valid_ids[0]
+        subprocess.run(
+            ["python", "/app/signal_analysis.py", "analyze",
+             "--experiment-id", target, "--output-dir", str(tmp_path)],
+            check=True,
+        )
+        assert (tmp_path / target / "analysis.json").exists(), f"scoped analyze did not produce {target}"
+        for other in valid_ids[1:]:
+            assert not (tmp_path / other).exists(), (
+                f"{other} produced even though only {target} was requested"
+            )
+
+    def test_experiment_id_invalid_skipped(self, tmp_path):
+        """A non-valid or unknown --experiment-id must be skipped, producing no output."""
+        subprocess.run(
+            ["python", "/app/signal_analysis.py", "analyze",
+             "--experiment-id", "NOSUCH", "--output-dir", str(tmp_path)],
+            check=True,
+        )
+        assert not any(tmp_path.iterdir()), "unknown experiment id must produce no analyze output"

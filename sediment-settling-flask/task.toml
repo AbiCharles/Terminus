@@ -1,0 +1,70 @@
+# Task configuration schema version
+version = "2.0"
+
+# Task metadata (author, difficulty, categorization)
+[metadata]
+author_name = "Abigail Charles"
+author_email = "warriorp8@gmail.com"
+difficulty = "hard"
+category = "scientific-computing"
+# Options for subcategories are: "long_context", "tool_specific", "api_integration", "db_interaction", "ui_building"
+subcategories = ["api_integration", "db_interaction"]
+# Total milestone count — must match the number of [[steps]] blocks below
+number_of_milestones = 3
+# Size of the codebase: minimal -> 0-20 files, small -> 20+ files, large -> 200+ files
+codebase_size = "minimal"
+# Coding languages used in the oracle solution or required by the agent
+languages = ["python", "sql"]
+# For tool_specific, api_integration, and db_interaction subcategories, please include specific tool, api framework, or database software
+tags = ["flask", "sqlite", "scipy", "curve-fitting", "sediment-settling"]
+# Estimated time to complete (minutes)
+expert_time_estimate_min = 90
+junior_time_estimate_min = 180
+
+# The agent builds a Python CLI that analyzes settling-column experiment 7. It reads
+# experiment metadata + sensor calibration from the SQLite database /app/experiments.db
+# and writes /app/output/metadata.json (milestone 1), fetches paginated raw observations
+# from the local Flask API at http://127.0.0.1:8000 (source in /app/api) and converts them
+# to /app/output/observations.csv (milestone 2), then fits the Stokes-law-inspired settling
+# model and writes /app/output/report.json and /app/output/report.csv with parameter
+# estimates, confidence intervals, derived quantities, and residual metrics (milestone 3).
+# The contract is /app/spec.md.
+
+# Sandbox environment limits — applied across all milestones (the same container is shared)
+[environment]
+allow_internet = false
+build_timeout_sec = 1200.0
+cpus = 4
+memory_mb = 8192
+storage_mb = 12288
+workdir = "/app"
+
+# Milestone 1 — Query Experiment Metadata: write /app/output/metadata.json from SQLite
+[[steps]]
+name = "milestone_1"
+
+[steps.agent]
+timeout_sec = 1800.0
+
+[steps.verifier]
+timeout_sec = 600.0
+
+# Milestone 2 — Retrieve Settling Observations: write /app/output/observations.csv from the API
+[[steps]]
+name = "milestone_2"
+
+[steps.agent]
+timeout_sec = 1800.0
+
+[steps.verifier]
+timeout_sec = 600.0
+
+# Milestone 3 — Fit Sedimentation Model: write /app/output/report.json and report.csv
+[[steps]]
+name = "milestone_3"
+
+[steps.agent]
+timeout_sec = 1800.0
+
+[steps.verifier]
+timeout_sec = 600.0

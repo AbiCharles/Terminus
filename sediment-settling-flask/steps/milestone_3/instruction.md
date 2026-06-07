@@ -1,0 +1,1 @@
+Milestone 3: fit the settling model to experiment 7's observations and write `/app/output/report.json` and `/app/output/report.csv` with the parameter estimates, 95% confidence intervals, derived quantities, and residual metrics defined in the spec.

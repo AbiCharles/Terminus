@@ -1,0 +1,3 @@
+We run sediment settling-column experiments and I need a small analysis CLI built for one of them. Everything's in `/app`: the experiment metadata and sensor calibration constants live in the SQLite database `/app/experiments.db`, the time-series observations are served by a Flask API already running at `http://127.0.0.1:8000` (its source is in `/app/api`), and the full data contract is written up in `/app/spec.md`. Read the spec first — it defines the database schema, the API, the settling model and how to fit it, and the exact output files. Build a Python CLI that analyzes **experiment 7** and writes its outputs under `/app/output`.
+
+Milestone 1: produce `/app/output/metadata.json` containing experiment 7's metadata and calibration constants, as described in the spec.

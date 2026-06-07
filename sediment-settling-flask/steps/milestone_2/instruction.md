@@ -1,0 +1,1 @@
+Milestone 2: produce `/app/output/observations.csv` — every time–position observation for experiment 7, fetched from the API and converted to physical units (`time_s`, `height_cm`) as the spec describes.

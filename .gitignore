@@ -16,3 +16,8 @@ jobs_*.log
 
 # Built submission archive
 *.zip
+
+# Sediment dev scratch
+dev-sediment/.venv/
+dev-sediment/*.db
+dev-sediment/Dockerfile.verify

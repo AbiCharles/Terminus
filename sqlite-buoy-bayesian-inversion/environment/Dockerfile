@@ -13,24 +13,24 @@ RUN python /build/generate_observations.py /build/observations.db
 # Final runtime stage.
 FROM python:3.13-slim-bookworm@sha256:e4fa1f978c539608a10cdf74700ac32a3f719dfc6e8b6b6001da82deb36302a2
 
-# Required by the agent runtime — missing these makes agent runs fail silently.
+# Agent runtime toolchain. The agent solves the task in C++: g++ to compile, the
+# SQLite C library to read /app/observations.db, and the nlohmann JSON header to read
+# and write the JSON artifacts. tmux + asciinema are required by the agent harness.
 RUN apt-get update \
     && apt-get install -y --no-install-recommends \
         tmux \
         asciinema \
+        g++ \
+        libsqlite3-dev \
+        nlohmann-json3-dev \
     && rm -rf /var/lib/apt/lists/*
 
-# Agent + verifier runtime dependencies (numpy for the inversion; scikit-learn and
-# mlflow for logging/registering the calibration model; sqlite3 is stdlib). The
-# verifier also needs them to recompute the reference and to load the registered
-# model. Installed from a fully hashed lockfile.
-COPY requirements.lock /tmp/requirements.lock
-RUN pip install --no-cache-dir --require-hashes --no-deps -r /tmp/requirements.lock
-
-# Verifier-ONLY test dependencies (pytest stack) are staged as wheels rather than
-# installed, so the agent environment does not carry test tooling. Each milestone's
-# tests/test.sh installs them offline from this wheel directory at verification time.
+# Verifier-ONLY dependencies (pinned), staged as wheels and NOT installed: the agent
+# works in C++ and needs none of these. The pytest verifier recomputes the reference
+# posterior independently with numpy; each milestone's tests/test.sh installs these
+# offline from this wheel directory at verification time.
 RUN pip download --no-cache-dir -d /opt/wheels \
+    numpy==2.4.6 \
     pytest==8.4.1 \
     pytest-json-ctrf==0.3.5
 

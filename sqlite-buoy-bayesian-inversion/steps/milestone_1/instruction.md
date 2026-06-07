@@ -1,6 +1,8 @@
-I've got an ocean-buoy calibration mission notebook at /app/mission_notebook.md and a SQLite database of observations at /app/observations.db, and I need a small Python CLI at /app/buoy_calibrate.py that calibrates each buoy's sensor drift over three steps: pull the binding rules out of the notebook, build a clean per-buoy residual series from the database, then run a Bayesian inversion for each sensor's offset and drift. The notebook has been revised across editions and only its governing sections (§6–§13) are binding — earlier-edition numbers are quoted elsewhere as background and must not be used.
+I've got an ocean-buoy calibration mission notebook at /app/mission_notebook.md and a SQLite database of observations at /app/observations.db, and I need a small C++ program at /app/buoy_calibrate that calibrates each buoy's sensor drift over three steps: pull the binding rules out of the notebook, build a clean per-buoy residual series from the database, then run a Bayesian inversion for each sensor's offset and drift. The notebook has been revised across editions and only its governing sections (§6–§13) are binding — earlier-edition numbers are quoted elsewhere as background and must not be used.
 
-For this first step, make `python /app/buoy_calibrate.py parse` read /app/mission_notebook.md and write the binding protocol to /app/protocol.json as a single JSON object with exactly this shape:
+The `g++` compiler is installed; link the SQLite C library with `-lsqlite3` (header `<sqlite3.h>`) to read the database, and the nlohmann/json header (`<nlohmann/json.hpp>`) is available for reading and writing JSON. Build your program to `/app/buoy_calibrate` (the binary must persist for the later steps).
+
+For this first step, make `/app/buoy_calibrate parse` read /app/mission_notebook.md and write the binding protocol to /app/protocol.json as a single JSON object with exactly this shape:
 
 ```json
 {

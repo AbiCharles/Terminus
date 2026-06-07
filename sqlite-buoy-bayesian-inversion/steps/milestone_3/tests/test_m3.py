@@ -4,48 +4,29 @@ Verifies /app/artifacts/<buoy_id>/posterior.json reports the heteroscedastic,
 three-parameter change-point conjugate Gaussian posterior (offset, drift,
 drift_change) with means, standard deviations and 95% credible intervals, the
 admitted observation count, the changepoint, and pre/post-correction RMSE — all
-matched against an independent recomputation from the database and the binding
-priors (_reference.py). Matching requires the agent to use the weighted (1/std^2)
-GLS with the hinge regressor; an unweighted or two-parameter fit falls outside
-tolerance. A fleet summary aggregates the per-buoy corrected RMSE.
+matched against an independent numpy recomputation from the database and the binding
+priors (_reference.py). Matching requires the weighted (1/std^2) GLS with the hinge
+regressor; an unweighted or two-parameter fit falls outside tolerance.
+
+The §13 acceptance gate (drift_change credible interval excludes zero) must partition
+the fleet into accepted/rejected, recorded in /app/artifacts/summary.json. Accepted
+buoys' correction models must be registered in /app/artifacts/registry.json (posterior
+means as coefficients) and be queryable through the program's `predict` subcommand,
+which must return offset + drift*t + drift_change*hinge; rejected buoys must not be
+registered. A fleet summary aggregates the per-buoy corrected RMSE.
 """
 
 import json
+import subprocess
 from pathlib import Path
 
-import mlflow
-import mlflow.sklearn
 import numpy as np
 import pytest
-from mlflow.tracking import MlflowClient
 
 import _reference
 
-REGISTERED_MODEL = "buoy_drift_correction"
-TRACKING_URI = "sqlite:////app/mlflow.db"
-EXPERIMENT_NAME = "buoy-calibration"
-
-
-@pytest.fixture(scope="module")
-def gate(included):
-    """Per-buoy acceptance from the §13 gate (drift_change CI excludes zero)."""
-    return {b: _reference.accepted(b) for b in included}
-
-
-@pytest.fixture(scope="module")
-def runs_by_buoy():
-    mlflow.set_tracking_uri(TRACKING_URI)
-    client = MlflowClient()
-    experiment = client.get_experiment_by_name(EXPERIMENT_NAME)
-    assert experiment is not None, f"MLflow experiment '{EXPERIMENT_NAME}' was not created"
-    mapping = {}
-    for run in client.search_runs([experiment.experiment_id]):
-        key = run.data.tags.get("buoy_id")  # must be tagged with buoy_id (no run-name fallback)
-        if key:
-            mapping[key] = run
-    return mapping
-
 ARTIFACTS = Path("/app/artifacts")
+BINARY = "/app/buoy_calibrate"
 PARAMS = ("offset", "drift", "drift_change")
 
 
@@ -61,10 +42,40 @@ def reference(included):
     return {b: _reference.posterior(b) for b in included}
 
 
+@pytest.fixture(scope="module")
+def gate(included):
+    """Per-buoy acceptance from the §13 gate (drift_change CI excludes zero)."""
+    return {b: _reference.accepted(b) for b in included}
+
+
+@pytest.fixture(scope="module")
+def summary():
+    path = ARTIFACTS / "summary.json"
+    assert path.exists(), "summary.json missing — milestone 3 not completed"
+    return json.loads(path.read_text())
+
+
+@pytest.fixture(scope="module")
+def registry():
+    path = ARTIFACTS / "registry.json"
+    assert path.exists(), "registry.json missing — accepted models were not registered"
+    return json.loads(path.read_text())
+
+
 def load(buoy):
     path = ARTIFACTS / buoy / "posterior.json"
     assert path.exists(), f"{buoy} missing posterior.json — milestone 3 not completed"
     return json.loads(path.read_text())
+
+
+def predict(buoy, t, hinge):
+    """Query the registered correction model through the program's predict subcommand."""
+    out = subprocess.run(
+        [BINARY, "predict", "--buoy", buoy, "--t", repr(float(t)), "--hinge", repr(float(hinge))],
+        capture_output=True, text=True,
+    )
+    assert out.returncode == 0, f"predict failed for {buoy}: {out.stderr.strip()}"
+    return float(out.stdout.strip())
 
 
 class TestMilestone3:
@@ -122,112 +133,65 @@ class TestMilestone3:
             f"gate should partition the fleet; got {n_acc}/{len(included)} accepted"
         )
 
-    def test_run_status_tags(self, included, gate, runs_by_buoy):
-        """Each buoy's MLflow run must be tagged accepted/rejected per the gate."""
+    def test_summary_accept_reject(self, included, gate, summary):
+        """summary.json must list each buoy's accepted/rejected status matching the §13 gate."""
+        acc = {b for b in included if gate[b]}
+        rej = {b for b in included if not gate[b]}
+        assert set(summary["accepted"]) == acc, "summary.json accepted list does not match the gate"
+        assert set(summary["rejected"]) == rej, "summary.json rejected list does not match the gate"
+        status = {b["buoy_id"]: b["status"] for b in summary["buoys"]}
         for buoy in included:
-            run = runs_by_buoy.get(buoy)
-            assert run is not None, f"{buoy} has no MLflow run in '{EXPERIMENT_NAME}'"
-            expected = "accepted" if gate[buoy] else "rejected"
-            assert run.data.tags.get("status") == expected, (
-                f"{buoy} run status tag should be {expected}"
-            )
+            assert status.get(buoy) == ("accepted" if gate[buoy] else "rejected"), f"{buoy} status wrong"
 
-    def test_run_params_and_metrics(self, included, reference, runs_by_buoy):
-        """Each buoy's run must be named after the buoy and log the required params and metrics
-        (experiment 'buoy-calibration' is enforced by the runs_by_buoy fixture)."""
-        for buoy in included:
-            run = runs_by_buoy[buoy]
-            assert run.info.run_name == buoy, f"{buoy} run must be named '{buoy}'"
-            params = run.data.params
-            assert params.get("sensor_type") == reference[buoy]["sensor_type"], f"{buoy} missing/incorrect sensor_type param"
-            assert int(params["n_observations"]) == reference[buoy]["n_observations"], f"{buoy} n_observations param wrong"
-            assert float(params["changepoint_t_days"]) == pytest.approx(
-                reference[buoy]["changepoint_t_days"], abs=1e-6
-            ), f"{buoy} changepoint_t_days param wrong"
-            metrics = run.data.metrics
+    def test_fleet_summary(self, included, reference, summary):
+        """The fleet block must aggregate the per-buoy corrected RMSE and counts."""
+        fleet = summary["fleet"]
+        assert fleet["n_buoys"] == len(included)
+        rmses = [reference[b]["calibration"]["corrected_rmse"] for b in included]
+        assert fleet["mean_corrected_rmse"] == pytest.approx(float(np.mean(rmses)), rel=1e-3, abs=1e-9)
+
+    def test_registry_accepted_only(self, included, gate, reference, registry):
+        """registry.json must register exactly the accepted buoys with posterior-mean coefficients."""
+        models = registry["models"]
+        assert set(models) == {b for b in included if gate[b]}, (
+            "registry must contain exactly the accepted buoys (no rejected buoys)"
+        )
+        for buoy, mdl in models.items():
             post = reference[buoy]["posterior"]
-            for p in PARAMS:
-                assert metrics[f"{p}_mean"] == pytest.approx(post[p]["mean"], rel=1e-3, abs=1e-9), f"{buoy} {p}_mean metric"
-                assert metrics[f"{p}_std"] == pytest.approx(post[p]["std"], rel=1e-2, abs=1e-9), f"{buoy} {p}_std metric"
-            assert metrics["corrected_rmse"] == pytest.approx(
-                reference[buoy]["calibration"]["corrected_rmse"], rel=1e-3, abs=1e-9
-            ), f"{buoy} corrected_rmse metric"
+            assert mdl["offset"] == pytest.approx(post["offset"]["mean"], rel=1e-3, abs=1e-9), f"{buoy} offset coeff"
+            assert mdl["drift"] == pytest.approx(post["drift"]["mean"], rel=1e-3, abs=1e-9), f"{buoy} drift coeff"
+            assert mdl["drift_change"] == pytest.approx(post["drift_change"]["mean"], rel=1e-3, abs=1e-9), f"{buoy} drift_change coeff"
+            assert mdl["changepoint_t_days"] == pytest.approx(reference[buoy]["changepoint_t_days"], abs=1e-6)
 
-    def test_accepted_models_registered_and_predict(self, included, gate, reference):
-        """Accepted buoys must have their model registered under the buoy_id alias and, when
-        loaded, predict offset+drift*t+drift_change*hinge; rejected buoys must NOT be registered."""
-        mlflow.set_tracking_uri(TRACKING_URI)
+    def test_predict_matches_calibration(self, included, gate, reference):
+        """Each accepted buoy's registered model, queried via `predict`, must return
+        offset + drift*t + drift_change*hinge from the posterior means."""
         for buoy in included:
-            uri = f"models:/{REGISTERED_MODEL}@{buoy}"
-            if gate[buoy]:
-                model = mlflow.sklearn.load_model(uri)
-                post = reference[buoy]["posterior"]
-                tc = reference[buoy]["changepoint_t_days"]
-                t = np.array([10.0, 80.0, 150.0], dtype=np.float64)
-                hinge = np.maximum(0.0, t - tc)
-                pred = np.asarray(model.predict(np.column_stack([t, hinge])), dtype=np.float64)
+            if not gate[buoy]:
+                continue
+            post = reference[buoy]["posterior"]
+            tc = reference[buoy]["changepoint_t_days"]
+            for t in (10.0, 80.0, 150.0):
+                hinge = max(0.0, t - tc)
                 expected = post["offset"]["mean"] + post["drift"]["mean"] * t + post["drift_change"]["mean"] * hinge
-                assert np.allclose(pred, expected, rtol=1e-3, atol=1e-6), (
-                    f"{buoy}: registered model predictions do not match the calibration"
+                assert predict(buoy, t, hinge) == pytest.approx(expected, rel=1e-3, abs=1e-6), (
+                    f"{buoy}: predict({t}, {hinge}) does not match the calibration"
                 )
-                # Pre-changepoint probe (hinge=0): catches a model that conflates
-                # drift with drift_change or ignores the hinge feature.
-                t0 = np.array([5.0, 40.0], dtype=np.float64)
-                pred0 = np.asarray(model.predict(np.column_stack([t0, np.zeros_like(t0)])), dtype=np.float64)
-                expected0 = post["offset"]["mean"] + post["drift"]["mean"] * t0
-                assert np.allclose(pred0, expected0, rtol=1e-3, atol=1e-6), (
-                    f"{buoy}: pre-changepoint predictions (hinge=0) are wrong"
+            # Pre-changepoint probe (hinge=0): catches conflating drift with drift_change.
+            for t in (5.0, 40.0):
+                expected0 = post["offset"]["mean"] + post["drift"]["mean"] * t
+                assert predict(buoy, t, 0.0) == pytest.approx(expected0, rel=1e-3, abs=1e-6), (
+                    f"{buoy}: pre-changepoint predict({t}, 0) is wrong"
                 )
-            else:
-                try:
-                    mlflow.sklearn.load_model(uri)
-                    raise AssertionError(f"{buoy} was rejected by the gate and must NOT be registered/aliased")
-                except AssertionError:
-                    raise
-                except Exception:
-                    pass  # expected: alias does not resolve for a rejected buoy
 
-    def test_logged_model_entity_exists(self, included, gate, runs_by_buoy):
-        """Accepted buoys must log the model via the MLflow 3.x logged-model API (a LoggedModel
-        entity tied to the run), not a raw artifact — verified through search_logged_models."""
-        client = MlflowClient()
-        experiment = client.get_experiment_by_name(EXPERIMENT_NAME)
-        logged_run_ids = {lm.source_run_id for lm in client.search_logged_models(experiment_ids=[experiment.experiment_id])}
+    def test_rejected_not_registered(self, included, gate, registry):
+        """Rejected buoys must not be registered and must not resolve through predict."""
         for buoy in included:
             if gate[buoy]:
-                run_id = runs_by_buoy[buoy].info.run_id
-                assert run_id in logged_run_ids, (
-                    f"{buoy} (accepted) must log a model via mlflow.sklearn.log_model "
-                    f"(no LoggedModel found for its run)"
-                )
-
-    def test_model_version_tag(self, included, gate):
-        """Each accepted buoy's registered model VERSION must be tagged validation_status=accepted
-        and be resolvable via its alias (MLflow 3.x registry API: get_model_version_by_alias)."""
-        client = MlflowClient()
-        for buoy in included:
-            if gate[buoy]:
-                mv = client.get_model_version_by_alias(REGISTERED_MODEL, buoy)
-                assert mv.tags.get("validation_status") == "accepted", (
-                    f"{buoy}: registered model version must be tagged validation_status=accepted"
-                )
-
-    def test_summary_accept_reject(self, included, gate):
-        """summary.json must list the accepted and rejected buoys and n_accepted per the gate."""
-        summary = json.loads((ARTIFACTS / "summary.json").read_text())
-        exp_acc = sorted(b for b in included if gate[b])
-        exp_rej = sorted(b for b in included if not gate[b])
-        assert sorted(summary.get("accepted", [])) == exp_acc, "summary.accepted must list accepted buoys"
-        assert sorted(summary.get("rejected", [])) == exp_rej, "summary.rejected must list rejected buoys"
-        assert summary["fleet"]["n_accepted"] == len(exp_acc), "fleet.n_accepted must match the gate"
-
-    def test_fleet_summary(self, included, reference):
-        """summary.json must aggregate the per-buoy corrected RMSE over the calibrated fleet."""
-        path = ARTIFACTS / "summary.json"
-        assert path.exists(), "summary.json missing"
-        summary = json.loads(path.read_text())
-        listed = {b["buoy_id"] for b in summary["buoys"]}
-        assert listed == set(included), f"summary buoys {listed} != calibrated {set(included)}"
-        assert summary["fleet"]["n_buoys"] == len(included)
-        mean_corrected = sum(reference[b]["calibration"]["corrected_rmse"] for b in included) / len(included)
-        assert summary["fleet"]["mean_corrected_rmse"] == pytest.approx(mean_corrected, rel=1e-3, abs=1e-9)
+                continue
+            assert buoy not in registry["models"], f"{buoy} was rejected and must not be registered"
+            out = subprocess.run(
+                [BINARY, "predict", "--buoy", buoy, "--t", "10.0", "--hinge", "0.0"],
+                capture_output=True, text=True,
+            )
+            assert out.returncode != 0, f"{buoy} is rejected; predict must not resolve it"

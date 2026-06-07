@@ -13,25 +13,31 @@ subcategories = ["long_context", "db_interaction"]
 number_of_milestones = 3
 # Size of the codebase: minimal -> 0-20 files, small -> 20+ files, large -> 200+ files
 codebase_size = "minimal"
-# Coding languages used in the oracle solution or required by the agent
-languages = ["python"]
+# Coding languages used in the oracle solution or required by the agent. The agent
+# writes a C++ program (SQLite C API + hand-rolled linear algebra); the pytest
+# verifier is not the task language and is not listed.
+languages = ["cpp"]
 # For tool_specific, api_integration, and db_interaction subcategories, please include specific tool, api framework, or database software
-tags = ["sqlite", "bayesian-inference", "calibration", "long-context", "time-series", "numpy"]
+tags = ["sqlite", "bayesian-inference", "calibration", "long-context", "cpp", "linear-algebra"]
 # Estimated time to complete (minutes)
 expert_time_estimate_min = 120
 junior_time_estimate_min = 240
 
-# The agent builds a Python CLI at /app/buoy_calibrate.py that calibrates ocean
+# The agent builds a C++ program at /app/buoy_calibrate (compiled with g++, linking
+# the SQLite C library and using the nlohmann/json header) that calibrates ocean
 # buoy sensor drift. Milestone 1 (parse) reads the ~50k-token mission notebook at
-# /app/mission_notebook.md and writes the binding calibration protocol to
-# /app/protocol.json (per-sensor-type unit conversions, noise, Bayesian priors,
-# plus exclusion intervals, mission epoch and inclusion rules). Milestone 2
-# (query) reads observations from the SQLite store at /app/observations.db, keeps
-# only active buoys of included sensor types, drops exclusion windows, applies the
-# unit conversion, and writes a cleaned residual series per buoy under
-# /app/artifacts. Milestone 3 (invert) computes the conjugate Gaussian posterior
-# for each buoy's offset and drift and writes posterior summaries plus a fleet
-# calibration summary.
+# /app/mission_notebook.md and extracts the binding calibration protocol to
+# /app/protocol.json (per-sensor-type unit conversions, Bayesian priors, exclusion
+# intervals, mission epoch and inclusion rules) from its governing sections.
+# Milestone 2 (query) reads observations from the SQLite store at
+# /app/observations.db via the SQLite C API, keeps only active buoys of included
+# sensor types, drops exclusion windows, applies the unit conversion, and writes a
+# cleaned residual series per buoy under /app/artifacts. Milestone 3 (invert)
+# computes the heteroscedastic weighted change-point conjugate Gaussian posterior
+# (hand-rolled 3x3 linear algebra) for each buoy, writes per-buoy posteriors and a
+# fleet summary, applies an acceptance gate, registers accepted buoys' correction
+# models in /app/artifacts/registry.json, and exposes a `predict` subcommand. The
+# pytest verifier recomputes the posterior independently with numpy.
 
 # Sandbox environment limits — applied across all milestones (the same container is shared)
 [environment]

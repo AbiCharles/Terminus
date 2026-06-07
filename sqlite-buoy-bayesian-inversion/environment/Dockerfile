@@ -3,8 +3,9 @@
 # agent cannot recover the answers from the environment.
 FROM python:3.13-slim-bookworm@sha256:e4fa1f978c539608a10cdf74700ac32a3f719dfc6e8b6b6001da82deb36302a2 AS builder
 
-COPY requirements.lock /tmp/requirements.lock
-RUN pip install --no-cache-dir --require-hashes --no-deps -r /tmp/requirements.lock
+# Builder needs only numpy to synthesize the database (kept lean via its own lock).
+COPY requirements-build.lock /tmp/requirements-build.lock
+RUN pip install --no-cache-dir --require-hashes --no-deps -r /tmp/requirements-build.lock
 
 COPY generate_observations.py /build/generate_observations.py
 RUN python /build/generate_observations.py /build/observations.db
@@ -19,9 +20,10 @@ RUN apt-get update \
         asciinema \
     && rm -rf /var/lib/apt/lists/*
 
-# Agent + verifier runtime dependency (numpy; sqlite3 is in the standard library).
-# The agent needs it for the inversion; the verifier needs it to recompute the
-# reference posterior independently. Installed from a fully hashed lockfile.
+# Agent + verifier runtime dependencies (numpy for the inversion; scikit-learn and
+# mlflow for logging/registering the calibration model; sqlite3 is stdlib). The
+# verifier also needs them to recompute the reference and to load the registered
+# model. Installed from a fully hashed lockfile.
 COPY requirements.lock /tmp/requirements.lock
 RUN pip install --no-cache-dir --require-hashes --no-deps -r /tmp/requirements.lock
 

@@ -130,6 +130,9 @@ posterior over the offset, the baseline drift, and the drift change; report each
 mean and standard deviation and a central 95% credible interval, together with the admitted observation
 count, the changepoint in elapsed days, and the root-mean-square residual before and after subtracting
 the fitted model. A fleet-level summary aggregates the per-buoy corrected root-mean-square residuals.
+Each buoy's fitted drift-correction is also registered as a deployable model in the programme's MLflow
+registry under a single registered model name, with the buoy's identifier as the registry alias, so a
+downstream consumer can resolve a buoy's current calibration by alias.
 
 ## §14 Revision History (Superseded — Not Binding)
 

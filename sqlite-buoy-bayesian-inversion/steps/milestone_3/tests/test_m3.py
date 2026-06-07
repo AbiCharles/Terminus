@@ -13,9 +13,15 @@ tolerance. A fleet summary aggregates the per-buoy corrected RMSE.
 import json
 from pathlib import Path
 
+import mlflow
+import mlflow.sklearn
+import numpy as np
 import pytest
 
 import _reference
+
+REGISTERED_MODEL = "buoy_drift_correction"
+TRACKING_URI = "sqlite:////app/mlflow.db"
 
 ARTIFACTS = Path("/app/artifacts")
 PARAMS = ("offset", "drift", "drift_change")
@@ -83,6 +89,23 @@ class TestMilestone3:
             assert got["rmse_residual"] == pytest.approx(exp["rmse_residual"], rel=1e-3, abs=1e-9)
             assert got["corrected_rmse"] == pytest.approx(exp["corrected_rmse"], rel=1e-3, abs=1e-9)
             assert got["corrected_rmse"] <= got["rmse_residual"] + 1e-9
+
+    def test_registered_calibration_model(self, included, reference):
+        """Each buoy's drift-correction model must be registered under its buoy_id alias in the
+        MLflow Model Registry and, when loaded, predict the calibration offset+drift*t+
+        drift_change*hinge from features [t_days, hinge]."""
+        mlflow.set_tracking_uri(TRACKING_URI)
+        for buoy in included:
+            model = mlflow.sklearn.load_model(f"models:/{REGISTERED_MODEL}@{buoy}")
+            post = reference[buoy]["posterior"]
+            tc = reference[buoy]["changepoint_t_days"]
+            t = np.array([10.0, 80.0, 150.0], dtype=np.float64)
+            hinge = np.maximum(0.0, t - tc)
+            pred = np.asarray(model.predict(np.column_stack([t, hinge])), dtype=np.float64)
+            expected = post["offset"]["mean"] + post["drift"]["mean"] * t + post["drift_change"]["mean"] * hinge
+            assert np.allclose(pred, expected, rtol=1e-3, atol=1e-6), (
+                f"{buoy}: registered calibration model predictions do not match the posterior calibration"
+            )
 
     def test_fleet_summary(self, included, reference):
         """summary.json must aggregate the per-buoy corrected RMSE over the calibrated fleet."""

@@ -29,6 +29,9 @@ TS = r"\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}Z"
 DEC = r"-?[0-9]+\.[0-9]+"
 Z95 = 1.959963984540054
 PARAMS = ("offset", "drift", "drift_change")
+TRACKING_URI = "sqlite:////app/mlflow.db"
+EXPERIMENT_NAME = "buoy-calibration"
+REGISTERED_MODEL = "buoy_drift_correction"
 
 
 def parse_notebook(path):
@@ -214,6 +217,18 @@ def main(argv=None):
                 write_clean_csv(os.path.join(target, "clean.csv"), clean_series(con, buoy_id, sensor_type, protocol))
                 print(f"query: {buoy_id}")
         elif args.command == "invert":
+            import mlflow
+            import mlflow.sklearn
+            from sklearn.linear_model import LinearRegression
+
+            mlflow.set_tracking_uri(TRACKING_URI)
+            mlflow.set_experiment(EXPERIMENT_NAME)
+            client = mlflow.tracking.MlflowClient()
+            try:
+                client.create_registered_model(REGISTERED_MODEL)
+            except mlflow.exceptions.MlflowException:
+                pass
+
             summary = {"buoys": [], "fleet": {}}
             for buoy_id, sensor_type in buoys:
                 target = os.path.join(args.output_dir, buoy_id)
@@ -223,13 +238,36 @@ def main(argv=None):
                 result["buoy_id"] = buoy_id
                 with open(os.path.join(target, "posterior.json"), "w") as fh:
                     json.dump(result, fh, indent=2)
+
+                # Build the deployable drift-correction model: given features
+                # [t_days, hinge] it predicts the correction offset + drift*t +
+                # drift_change*hinge from the posterior means.
+                t = np.array(series["t_days"], dtype=np.float64)
+                hinge = np.maximum(0.0, t - result["changepoint_t_days"])
+                post = result["posterior"]
+                y = post["offset"]["mean"] + post["drift"]["mean"] * t + post["drift_change"]["mean"] * hinge
+                model = LinearRegression().fit(np.column_stack([t, hinge]), y)
+
+                with mlflow.start_run(run_name=buoy_id):
+                    mlflow.set_tag("buoy_id", buoy_id)
+                    mlflow.log_param("sensor_type", sensor_type)
+                    mlflow.log_param("n_observations", result["n_observations"])
+                    mlflow.log_param("changepoint_t_days", result["changepoint_t_days"])
+                    for p in PARAMS:
+                        mlflow.log_metric(f"{p}_mean", post[p]["mean"])
+                        mlflow.log_metric(f"{p}_std", post[p]["std"])
+                    mlflow.log_metric("corrected_rmse", result["calibration"]["corrected_rmse"])
+                    info = mlflow.sklearn.log_model(model, name="calibration_model")
+                version = mlflow.register_model(info.model_uri, REGISTERED_MODEL)
+                client.set_registered_model_alias(REGISTERED_MODEL, buoy_id, version.version)
+
                 summary["buoys"].append({
                     "buoy_id": buoy_id,
                     "sensor_type": sensor_type,
                     "n_observations": result["n_observations"],
-                    "offset_mean": result["posterior"]["offset"]["mean"],
-                    "drift_mean": result["posterior"]["drift"]["mean"],
-                    "drift_change_mean": result["posterior"]["drift_change"]["mean"],
+                    "offset_mean": post["offset"]["mean"],
+                    "drift_mean": post["drift"]["mean"],
+                    "drift_change_mean": post["drift_change"]["mean"],
                     "corrected_rmse": result["calibration"]["corrected_rmse"],
                 })
                 print(f"invert: {buoy_id}")

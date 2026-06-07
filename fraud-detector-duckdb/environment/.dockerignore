@@ -1,0 +1,7 @@
+# Build context hygiene — only Dockerfile, fraud.duckdb and spec.md are needed.
+**/__pycache__/
+*.pyc
+*.pyo
+*.log
+.DS_Store
+.ipynb_checkpoints/

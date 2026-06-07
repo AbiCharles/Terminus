@@ -1,0 +1,1 @@
+Milestone 3: build the scoring CLI at `/app/score.py` described in section 4 of `/app/spec.md`. Running it should load your saved model, score the score-split transactions from the `features` table, and write the results into a `scored_transactions` table in `/app/fraud.duckdb`.

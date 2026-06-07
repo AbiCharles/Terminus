@@ -1,0 +1,68 @@
+# Task configuration schema version
+version = "2.0"
+
+# Task metadata (author, difficulty, categorization)
+[metadata]
+author_name = "Abigail Charles"
+author_email = "warriorp8@gmail.com"
+difficulty = "hard"
+category = "machine-learning"
+# Options for subcategories are: "long_context", "tool_specific", "api_integration", "db_interaction", "ui_building"
+subcategories = ["db_interaction", "tool_specific"]
+# Total milestone count — must match the number of [[steps]] blocks below
+number_of_milestones = 3
+# Size of the codebase: minimal -> 0-20 files, small -> 20+ files, large -> 200+ files
+codebase_size = "minimal"
+# Coding languages used in the oracle solution or required by the agent
+languages = ["python", "sql"]
+# For tool_specific, api_integration, and db_interaction subcategories, please include specific tool, api framework, or database software
+tags = ["duckdb", "scikit-learn", "sql-window-functions", "fraud-detection", "feature-engineering"]
+# Estimated time to complete (minutes)
+expert_time_estimate_min = 120
+junior_time_estimate_min = 240
+
+# The agent works entirely against the DuckDB database at /app/fraud.duckdb, which
+# holds the raw `transactions` table, following the contract in /app/spec.md. It
+# builds a `features` table from SQL window functions (milestone 1), trains a
+# scikit-learn classifier saved to /app/artifacts/fraud_model.joblib and writes a
+# `model_metrics` table (milestone 2), then runs the /app/score.py CLI to write a
+# `scored_transactions` table of batch predictions back into the database (milestone 3).
+
+# Sandbox environment limits — applied across all milestones (the same container is shared)
+[environment]
+allow_internet = false
+build_timeout_sec = 1200.0
+cpus = 4
+memory_mb = 8192
+storage_mb = 12288
+workdir = "/app"
+
+# Milestone 1 — Create DuckDB Feature Store: build the `features` table via SQL window functions
+[[steps]]
+name = "milestone_1"
+
+[steps.agent]
+timeout_sec = 1800.0
+
+[steps.verifier]
+timeout_sec = 600.0
+
+# Milestone 2 — Train Fraud Classifier: train the model, save the artifact, write `model_metrics`
+[[steps]]
+name = "milestone_2"
+
+[steps.agent]
+timeout_sec = 1800.0
+
+[steps.verifier]
+timeout_sec = 600.0
+
+# Milestone 3 — Score Transactions CLI: write `scored_transactions` via /app/score.py
+[[steps]]
+name = "milestone_3"
+
+[steps.agent]
+timeout_sec = 1800.0
+
+[steps.verifier]
+timeout_sec = 600.0

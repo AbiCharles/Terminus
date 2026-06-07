@@ -6,6 +6,9 @@ Terminus.code-workspace
 # Local dev environment / scratch artifacts (provenance scripts are tracked)
 dev/.venv/
 dev/mlruns/
+dev-fraud/.venv/
+dev-fraud/fraud.duckdb
+dev-fraud/Dockerfile.verify
 **/__pycache__/
 *.pyc
 *.db

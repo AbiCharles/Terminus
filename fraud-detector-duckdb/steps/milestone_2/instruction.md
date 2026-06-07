@@ -1,0 +1,1 @@
+Milestone 2: train the fraud classifier specified in section 3 of `/app/spec.md` on the `features` table, save the fitted model to `/app/artifacts/fraud_model.joblib`, and write its score-split evaluation metrics into a `model_metrics` table in `/app/fraud.duckdb`.

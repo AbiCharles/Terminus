@@ -29,6 +29,8 @@ DEFAULT_DB = "/app/measurements.duckdb"
 DEFAULT_OUTPUT_DIR = "/app/artifacts"
 TRACKING_URI = "sqlite:////app/mlflow.db"
 EXPERIMENT_NAME = "signal-analysis"
+REGISTERED_MODEL = "signal_reconstruction"
+SNR_THRESHOLD = 0.80
 
 MC_SEED = 42
 MC_ITERATIONS = 10000
@@ -162,11 +164,53 @@ def write_analysis(experiment_id, analysis, output_dir):
         json.dump(analysis, fh, indent=2)
 
 
-def log_run(experiment_id, sample_rate, n_samples, analysis, output_dir, mlflow):
+def write_summary(accepted_ids, rejected_ids, output_dir):
+    os.makedirs(output_dir, exist_ok=True)
+    summary = {
+        "accepted": sorted(accepted_ids),
+        "rejected": sorted(rejected_ids),
+        "n_accepted": len(accepted_ids),
+        "n_valid": len(accepted_ids) + len(rejected_ids),
+    }
+    with open(os.path.join(output_dir, "summary.json"), "w") as fh:
+        json.dump(summary, fh, indent=2)
+
+
+def spectral_snr(detrended):
+    spectrum = np.abs(np.fft.rfft(detrended))
+    spectrum[0] = 0.0
+    power = spectrum**2
+    total = float(np.sum(power))
+    if total == 0.0:
+        return 0.0
+    top = np.sort(power)[::-1][:3]
+    return float(np.sum(top) / total)
+
+
+def fit_reconstruction(detrended, sample_rate, freqs):
+    from sklearn.linear_model import LinearRegression
+
+    t = np.arange(detrended.shape[0], dtype=np.float64) / sample_rate
+    cols = []
+    for f in freqs:
+        ang = 2.0 * np.pi * f * t
+        cols.append(np.cos(ang))
+        cols.append(np.sin(ang))
+    design = np.column_stack(cols)
+    return LinearRegression().fit(design, detrended)
+
+
+def log_run(experiment_id, sample_rate, n_samples, signal, analysis, output_dir, mlflow, client):
+    import mlflow.sklearn
+
     target = os.path.join(output_dir, experiment_id)
+    detrended = scipy.signal.detrend(signal, type="linear")
+    snr = spectral_snr(detrended)
+    is_accepted = snr >= SNR_THRESHOLD
     with mlflow.start_run(run_name=experiment_id):
         mlflow.set_tag("experiment_id", experiment_id)
         mlflow.set_tag("tool", "duckdb-signal-analysis")
+        mlflow.set_tag("status", "accepted" if is_accepted else "rejected")
         mlflow.log_param("experiment_id", experiment_id)
         mlflow.log_param("sample_rate_hz", sample_rate)
         mlflow.log_param("n_samples", n_samples)
@@ -177,6 +221,7 @@ def log_run(experiment_id, sample_rate, n_samples, analysis, output_dir, mlflow)
         stats = analysis["stats"]
         for key in ("std", "rms", "skew", "kurtosis", "min", "max"):
             mlflow.log_metric(key, stats[key])
+        freqs = [c["frequency_hz"] for c in analysis["dominant_frequencies"]]
         for component in analysis["dominant_frequencies"]:
             mlflow.log_metric(
                 f"dominant_freq_{component['rank']}_hz", component["frequency_hz"]
@@ -185,8 +230,18 @@ def log_run(experiment_id, sample_rate, n_samples, analysis, output_dir, mlflow)
         mlflow.log_metric("ci_rms_low", interval["low"])
         mlflow.log_metric("ci_rms_high", interval["high"])
         mlflow.log_metric("ci_rms_width", interval["high"] - interval["low"])
+        mlflow.log_metric("spectral_snr", snr)
         mlflow.log_artifact(os.path.join(target, "measurements.csv"), artifact_path="analysis")
         mlflow.log_artifact(os.path.join(target, "analysis.json"), artifact_path="analysis")
+        if is_accepted:
+            model = fit_reconstruction(detrended, sample_rate, freqs)
+            info = mlflow.sklearn.log_model(model, name="reconstruction_model")
+            version = mlflow.register_model(info.model_uri, REGISTERED_MODEL)
+            client.set_registered_model_alias(REGISTERED_MODEL, experiment_id, version.version)
+            client.set_model_version_tag(
+                REGISTERED_MODEL, version.version, "validation_status", "accepted"
+            )
+    return is_accepted
 
 
 def main(argv=None):
@@ -203,12 +258,17 @@ def main(argv=None):
     try:
         experiments = resolve_experiments(con, args.experiment_id)
 
+        client = None
         if args.command == "track":
             import mlflow
+            from mlflow.tracking import MlflowClient
 
             mlflow.set_tracking_uri(TRACKING_URI)
             mlflow.set_experiment(EXPERIMENT_NAME)
+            client = MlflowClient()
 
+        accepted_ids = []
+        rejected_ids = []
         for experiment_id in experiments:
             sample_rate, n_samples, indices, signal = load_signal(con, experiment_id)
             if args.command == "query":
@@ -224,10 +284,15 @@ def main(argv=None):
                     experiment_id, sample_rate, n_samples, indices, signal, args.output_dir
                 )
                 write_analysis(experiment_id, analysis, args.output_dir)
-                log_run(
-                    experiment_id, sample_rate, n_samples, analysis, args.output_dir, mlflow
+                is_accepted = log_run(
+                    experiment_id, sample_rate, n_samples, signal, analysis,
+                    args.output_dir, mlflow, client,
                 )
+                (accepted_ids if is_accepted else rejected_ids).append(experiment_id)
             print(f"{args.command}: {experiment_id}")
+
+        if args.command == "track":
+            write_summary(accepted_ids, rejected_ids, args.output_dir)
     finally:
         con.close()
 

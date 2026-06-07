@@ -7,10 +7,13 @@ an independent recomputation from the database (see _reference.py) so fabricated
 mis-computed values are rejected.
 """
 
+import json
 import subprocess
 from pathlib import Path
 
 import mlflow
+import mlflow.sklearn
+import numpy as np
 import pytest
 from mlflow.tracking import MlflowClient
 
@@ -18,6 +21,8 @@ import _reference
 
 TRACKING_URI = "sqlite:////app/mlflow.db"
 EXPERIMENT_NAME = "signal-analysis"
+REGISTERED_MODEL = "signal_reconstruction"
+ARTIFACTS = Path("/app/artifacts")
 
 
 @pytest.fixture(scope="module")
@@ -25,6 +30,12 @@ def valid_ids():
     ids = _reference.valid_experiment_ids()
     assert ids, "no valid experiments found in the database"
     return ids
+
+
+@pytest.fixture(scope="module")
+def gate(valid_ids):
+    """Per-experiment acceptance from the spectral-SNR gate (SNR >= threshold)."""
+    return {exp: _reference.accepted(exp) for exp in valid_ids}
 
 
 @pytest.fixture(scope="module")
@@ -144,6 +155,94 @@ class TestMilestone3:
             assert run.info.run_name == exp, (
                 f"run for {exp} must be named '{exp}', got '{run.info.run_name}'"
             )
+
+    def test_spectral_snr_metric(self, runs_by_experiment, valid_ids):
+        """Each run must log spectral_snr matching the independent recomputation."""
+        for exp in valid_ids:
+            detrended = _reference.detrend(_reference.load_signal(exp))
+            ref_snr = _reference.spectral_snr(detrended)
+            got = runs_by_experiment[exp].data.metrics.get("spectral_snr")
+            assert got is not None, f"{exp} missing spectral_snr metric"
+            assert got == pytest.approx(ref_snr, rel=1e-3, abs=1e-6), f"{exp} spectral_snr off"
+
+    def test_gate_partitions_fleet(self, gate, valid_ids):
+        """Sanity: the SNR gate must accept some experiments and reject others."""
+        n_acc = sum(gate.values())
+        assert 0 < n_acc < len(valid_ids), (
+            f"gate should partition the fleet; got {n_acc}/{len(valid_ids)} accepted"
+        )
+
+    def test_status_tags(self, runs_by_experiment, valid_ids, gate):
+        """Each run must be tagged accepted/rejected per the spectral-SNR gate."""
+        for exp in valid_ids:
+            expected = "accepted" if gate[exp] else "rejected"
+            assert runs_by_experiment[exp].data.tags.get("status") == expected, (
+                f"{exp} run status tag should be {expected}"
+            )
+
+    def test_accepted_models_registered_and_predict(self, valid_ids, gate):
+        """Accepted experiments must register a Fourier model under their alias whose
+        predictions match the independent OLS fit; rejected ones must NOT be registered."""
+        mlflow.set_tracking_uri(TRACKING_URI)
+        for exp in valid_ids:
+            uri = f"models:/{REGISTERED_MODEL}@{exp}"
+            if gate[exp]:
+                fit = _reference.reconstruction_fit(exp)
+                model = mlflow.sklearn.load_model(uri)
+                idx = np.array([0.0, 7.0, 53.0, 311.0], dtype=np.float64)
+                t = idx / fit["sample_rate"]
+                features = _reference.reconstruction_features(t, fit["freqs"])
+                expected = fit["intercept"] + features @ np.asarray(fit["coef"], dtype=np.float64)
+                pred = np.asarray(model.predict(features), dtype=np.float64)
+                assert np.allclose(pred, expected, rtol=1e-3, atol=1e-4), (
+                    f"{exp}: registered model predictions do not match the reconstruction fit"
+                )
+            else:
+                try:
+                    mlflow.sklearn.load_model(uri)
+                    raise AssertionError(f"{exp} was rejected and must NOT be registered/aliased")
+                except AssertionError:
+                    raise
+                except Exception:
+                    pass  # expected: alias does not resolve for a rejected experiment
+
+    def test_logged_model_entity_exists(self, valid_ids, gate, runs_by_experiment):
+        """Accepted experiments must log the model via the MLflow 3.x logged-model API
+        (a LoggedModel tied to the run), not a raw artifact — checked via search_logged_models."""
+        client = MlflowClient()
+        experiment = client.get_experiment_by_name(EXPERIMENT_NAME)
+        logged_run_ids = {
+            lm.source_run_id
+            for lm in client.search_logged_models(experiment_ids=[experiment.experiment_id])
+        }
+        for exp in valid_ids:
+            if gate[exp]:
+                run_id = runs_by_experiment[exp].info.run_id
+                assert run_id in logged_run_ids, (
+                    f"{exp} (accepted) must log a model via mlflow.sklearn.log_model "
+                    f"(no LoggedModel found for its run)"
+                )
+
+    def test_model_version_tag(self, valid_ids, gate):
+        """Each accepted experiment's registered model VERSION must be tagged
+        validation_status=accepted and resolvable via its alias (MLflow 3.x registry)."""
+        client = MlflowClient()
+        for exp in valid_ids:
+            if gate[exp]:
+                mv = client.get_model_version_by_alias(REGISTERED_MODEL, exp)
+                assert mv.tags.get("validation_status") == "accepted", (
+                    f"{exp}: registered model version must be tagged validation_status=accepted"
+                )
+
+    def test_summary_accept_reject(self, valid_ids, gate):
+        """summary.json must list accepted/rejected experiments and the counts per the gate."""
+        summary = json.loads((ARTIFACTS / "summary.json").read_text())
+        exp_acc = sorted(e for e in valid_ids if gate[e])
+        exp_rej = sorted(e for e in valid_ids if not gate[e])
+        assert sorted(summary.get("accepted", [])) == exp_acc, "summary.accepted must list accepted experiments"
+        assert sorted(summary.get("rejected", [])) == exp_rej, "summary.rejected must list rejected experiments"
+        assert summary["n_accepted"] == len(exp_acc), "n_accepted must match the gate"
+        assert summary["n_valid"] == len(valid_ids), "n_valid must equal the valid experiment count"
 
     def test_experiment_id_scopes_track(self, valid_ids):
         """`track --experiment-id X` must record exactly X (snapshot diff on the store)."""

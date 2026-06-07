@@ -16,19 +16,21 @@ codebase_size = "minimal"
 # Coding languages used in the oracle solution or required by the agent
 languages = ["python", "sql"]
 # For tool_specific, api_integration, and db_interaction subcategories, please include specific tool, api framework, or database software
-tags = ["duckdb", "scikit-learn", "survival-analysis", "sql", "discrete-time-hazard"]
+tags = ["duckdb", "scikit-learn", "survival-analysis", "competing-risks", "sql"]
 # Estimated time to complete (minutes)
-expert_time_estimate_min = 150
-junior_time_estimate_min = 300
+expert_time_estimate_min = 180
+junior_time_estimate_min = 360
 
-# The agent connects to the DuckDB database at /app/survival.duckdb (table
-# `subjects`) and follows the contract in /app/spec.md. Milestone 1 builds the
-# discrete-time person-period training table `person_period` with SQL. Milestone
-# 2 trains a discrete-time logistic-regression hazard model on the person-period
-# rows and serializes it to /app/artifacts/survival_model.joblib. Milestone 3
-# produces per-subject survival curves (table `survival_curves`), risk scores
-# (table `risk_scores`), evaluation metrics (table `model_metrics` with c_index
-# and integrated_brier_score), and a predictions file /app/artifacts/predictions.csv,
+# The agent connects to the DuckDB database at /app/survival.duckdb (tables
+# `subjects` and longitudinal `measurements`) and follows the contract in
+# /app/spec.md. Milestone 1 builds the discrete-time `person_period` table with
+# SQL, carrying the time-varying biomarker forward (LOCF) and labelling the
+# competing-risks period_outcome. Milestone 2 trains a multinomial discrete-time
+# hazard model on the person-period rows and serializes it to
+# /app/artifacts/survival_model.joblib. Milestone 3 produces per-subject
+# cumulative incidence curves (table `cif_curves`), risk scores (table
+# `risk_scores`), evaluation metrics (table `model_metrics` with c_index and
+# integrated_brier_score), and a predictions file /app/artifacts/predictions.csv,
 # all written back into the database and reloadable from the saved model.
 
 # Sandbox environment limits — applied across all milestones (the same container is shared)

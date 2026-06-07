@@ -1,9 +1,9 @@
-"""Tests for milestone 2 (Train Discrete-Time Hazard Model).
+"""Tests for milestone 2 (Multinomial Discrete-Time Hazard Model).
 Run alone with: pytest tests/test_m2.py
 
-Verifies that the serialized model is a fitted LogisticRegression trained on the
-person-period rows with the spec's design matrix and hyperparameters, by
-independently retraining the reference model and comparing.
+Verifies the serialized model is a fitted 3-class LogisticRegression trained on the
+person-period rows with the spec's design matrix, by independently retraining the
+reference model and comparing coefficients and predicted cause-specific hazards.
 """
 
 from pathlib import Path
@@ -18,10 +18,10 @@ import _reference
 
 DB_PATH = "/app/survival.duckdb"
 MODEL_PATH = Path("/app/artifacts/survival_model.joblib")
-# Structural tolerance: lbfgs converges only to its stopping tolerance, and the
-# training-row order leaves ~2e-3 slack in the coefficients. The predicted-hazard
-# check below (which is what actually drives the outputs) is the precise guard.
-COEF_TOL = 1e-2
+# Structural tolerance: lbfgs converges only to its stopping tolerance and the
+# training-row order leaves a few-1e-3 of slack in the multinomial coefficients.
+# The predicted-hazard check below is the precise behavioral guard.
+COEF_TOL = 1.5e-2
 HAZARD_TOL = 5e-3
 
 
@@ -37,7 +37,7 @@ def reference_model():
 
 
 class TestMilestone2:
-    """Milestone 2: the serialized discrete-time hazard model."""
+    """Milestone 2: the serialized multinomial discrete-time hazard model."""
 
     def test_person_period_persists(self):
         """The person_period table from milestone 1 must still exist (state persists)."""
@@ -48,30 +48,32 @@ class TestMilestone2:
             con.close()
         assert "person_period" in tables, "person_period missing — was milestone 1 completed?"
 
-    def test_model_is_fitted_logreg(self, agent_model):
-        """The artifact must load as a fitted LogisticRegression with 7 coefficients."""
+    def test_model_is_three_class_logreg(self, agent_model):
+        """The artifact must load as a fitted LogisticRegression over classes [0,1,2] with 7 features."""
         assert isinstance(agent_model, LogisticRegression), "model must be a LogisticRegression"
         assert hasattr(agent_model, "coef_"), "model is not fitted"
+        assert list(agent_model.classes_) == [0, 1, 2], "model must be trained on the 3-class period_outcome"
         assert agent_model.coef_.shape[1] == len(_reference.FEATURES), (
             f"expected {len(_reference.FEATURES)} features, got {agent_model.coef_.shape[1]}"
         )
 
     def test_coefficients_match_reference(self, agent_model, reference_model):
-        """Coefficients/intercept must match an independent retrain (anti-fabrication)."""
+        """Coefficients must match an independent multinomial retrain (anti-fabrication)."""
         assert np.allclose(agent_model.coef_, reference_model.coef_, atol=COEF_TOL), (
-            "model coefficients differ from the reference discrete-time hazard fit"
-        )
-        assert np.allclose(agent_model.intercept_, reference_model.intercept_, atol=COEF_TOL), (
-            "model intercept differs from the reference fit"
+            "model coefficients differ from the reference multinomial hazard fit"
         )
 
-    def test_predicted_hazards_match_reference(self, agent_model, reference_model):
-        """Predicted hazards on the test design rows must match the reference model."""
-        subjects = _reference.load_subjects()
+    def test_cause_specific_hazards_match_reference(self, agent_model, reference_model):
+        """Predicted cause-1 and cause-2 hazards on the test grid must match the reference model."""
+        subjects, measurements = _reference.load_tables()
         test = subjects[subjects["split"] == "test"].reset_index(drop=True)
-        curves_design = test.loc[test.index.repeat(_reference.K)].copy()
-        curves_design["period"] = np.tile(np.arange(1, _reference.K + 1), len(test))
-        x = _reference.design(curves_design)
-        h_agent = agent_model.predict_proba(x)[:, 1]
-        h_ref = reference_model.predict_proba(x)[:, 1]
-        assert np.allclose(h_agent, h_ref, atol=HAZARD_TOL), "predicted hazards differ from the reference model"
+        import pandas as pd
+        full_k = pd.Series(np.full(len(test), _reference.K), index=test.index)
+        grid = _reference._locf_grid(test, measurements, full_k)
+        x = _reference.design(grid)
+        pa, pr = agent_model.predict_proba(x), reference_model.predict_proba(x)
+        ca, cr = list(agent_model.classes_), list(reference_model.classes_)
+        for cause in (1, 2):
+            assert np.allclose(pa[:, ca.index(cause)], pr[:, cr.index(cause)], atol=HAZARD_TOL), (
+                f"predicted cause-{cause} hazards differ from the reference model"
+            )

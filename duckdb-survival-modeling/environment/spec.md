@@ -1,165 +1,176 @@
-# Discrete-Time Survival Modeling — Technical Specification
+# Discrete-Time Competing-Risks Survival Modeling — Technical Specification
 
-This document is the binding contract for the survival-modeling pipeline. All table
-names, column names, the model configuration, and the metric definitions below are
-normative: the verifier reads/writes the same schemas and recomputes the same
-quantities. The database is DuckDB at `/app/survival.duckdb`.
+Binding contract for the pipeline. All table/column names, the model configuration,
+and the metric definitions are normative: the verifier reads/writes the same schemas
+and recomputes the same quantities. Database: DuckDB at `/app/survival.duckdb`.
+The follow-up grid has `K = 12` discrete periods (`1 … 12`).
 
-## 1. Source data — table `subjects`
+## 1. Source data
 
-One row per study subject. Right-censored clinical follow-up over a fixed grid of
-`K = 12` discrete periods (period index `1 … 12`).
-
+### Table `subjects` — one row per subject
 | column | type | meaning |
 |---|---|---|
-| `subject_id` | BIGINT | unique subject identifier |
-| `age` | DOUBLE | age in years at baseline |
-| `biomarker` | DOUBLE | positive continuous biomarker level |
-| `treatment` | INTEGER | treatment arm, `0` = control, `1` = treated |
-| `stage` | VARCHAR | disease stage, one of `I`, `II`, `III` |
+| `subject_id` | BIGINT | unique identifier |
+| `age` | DOUBLE | age at baseline |
+| `treatment` | INTEGER | arm, `0` = control, `1` = treated |
+| `stage` | VARCHAR | `I`, `II`, or `III` |
 | `sex` | VARCHAR | `F` or `M` |
 | `time_observed` | INTEGER | period of last observation, `1 … K` |
-| `event` | INTEGER | `1` if the event occurred at `time_observed`, `0` if censored there |
-| `split` | VARCHAR | `train` or `test` (assigned per subject) |
+| `event_type` | INTEGER | `0` = censored, `1` = cause 1 (disease), `2` = cause 2 (competing) |
+| `split` | VARCHAR | `train` or `test` |
 
-The model is trained on `split = 'train'` and all reported metrics are evaluated on
-`split = 'test'`.
+### Table `measurements` — longitudinal, sparse
+| column | type | meaning |
+|---|---|---|
+| `subject_id` | BIGINT | subject |
+| `period` | INTEGER | visit period at which the biomarker was recorded |
+| `biomarker` | DOUBLE | positive biomarker value at that visit |
 
-## 2. Discrete-time framework
+`biomarker` is **time-varying** and **step-constant between visits**. Every subject has
+a measurement at period 1. The biomarker that applies in period `t` is the value from
+the most recent visit at or before `t` (last-observation-carried-forward, LOCF). For
+periods after a subject's last visit, the last value is carried forward.
 
-For a subject with covariate vector `x`, the discrete hazard in period `t` is
-`h(t | x) = P(event in period t | survived through t-1, x)`. The survival function is
-the product of period-wise survival probabilities:
+The model is trained on `split = 'train'` and all metrics are evaluated on `split = 'test'`.
+
+## 2. Discrete-time competing-risks framework
+
+Two causes compete. The cause-specific hazard in period `t` is
+`h_c(t | x) = P(event of cause c in period t | event-free through t-1, x)` for `c ∈ {1, 2}`.
+Overall (event-free) survival and the cause-`c` cumulative incidence function (CIF) are
 
 ```
-S(t | x) = Π_{k=1..t} ( 1 - h(k | x) )
+S(t | x)    = Π_{k=1..t} ( 1 - h_1(k|x) - h_2(k|x) )          (with S(0) = 1)
+CIF_c(t|x)  = Σ_{k=1..t} h_c(k|x) · S(k-1 | x)
 ```
 
-The model estimates `h(t | x)` as a logistic regression over person-period rows.
+Note `CIF_c` is NOT `1 - S`; it accumulates cause-`c` hazard weighted by survival to the
+start of each period. By construction `CIF_1(t) + CIF_2(t) + S(t) = 1`.
 
 ## 3. Milestone 1 — table `person_period`
 
-Expand each subject into one row per period `t = 1 … time_observed` (inclusive). The
-binary period outcome `event_in_period` is `1` only in the subject's event period and
-`0` otherwise:
+Expand each subject into one row per period `t = 1 … time_observed`. Attach the LOCF
+biomarker for period `t` (most recent `measurements` row with `period ≤ t`). The period
+outcome is the competing-risks multinomial label:
 
 ```
-event_in_period = 1  iff  event = 1 AND period = time_observed,  else 0
+period_outcome = 1  if event_type = 1 and period = time_observed
+               = 2  if event_type = 2 and period = time_observed
+               = 0  otherwise
 ```
 
-A censored subject therefore contributes only `0`s. Required schema (baseline
-covariates copied unchanged from `subjects`):
+Required schema:
 
 | column | type |
 |---|---|
 | `subject_id` | BIGINT |
-| `period` | INTEGER (1 … time_observed) |
+| `period` | INTEGER |
 | `age` | DOUBLE |
-| `biomarker` | DOUBLE |
+| `biomarker` | DOUBLE (LOCF value active in this period) |
 | `treatment` | INTEGER |
 | `stage` | VARCHAR |
 | `sex` | VARCHAR |
 | `split` | VARCHAR |
-| `event_in_period` | INTEGER (0/1) |
+| `period_outcome` | INTEGER (0/1/2) |
 
-The total row count equals `SUM(time_observed)` over all subjects.
+Row count equals `SUM(time_observed)` over all subjects.
 
-## 4. Milestone 2 — discrete-time hazard model
+## 4. Milestone 2 — multinomial discrete-time hazard model
 
-Fit `sklearn.linear_model.LogisticRegression` predicting `event_in_period` from the
-following design matrix, built from the **train** person-period rows. Columns, in this
-exact construction:
+Fit `sklearn.linear_model.LogisticRegression` predicting `period_outcome` (a 3-class
+target) from the **train** person-period rows. Design matrix columns, in this exact
+construction:
 
 | design column | definition |
 |---|---|
-| `age` | `age` (unchanged) |
-| `log_biomarker` | `ln(biomarker)` (natural log) |
-| `treatment` | `treatment` (0/1) |
+| `age` | `age` |
+| `log_biomarker` | `ln(biomarker)` (the LOCF value in the row) |
+| `treatment` | `treatment` |
 | `stage_II` | `1` if `stage = 'II'` else `0` |
 | `stage_III` | `1` if `stage = 'III'` else `0` |
 | `sex_M` | `1` if `sex = 'M'` else `0` |
-| `period` | `period` (integer 1 … K, unchanged) |
+| `period` | `period` |
 
-No feature scaling is applied. Model hyperparameters (all explicit):
-`LogisticRegression(C=1.0, max_iter=2000, solver="lbfgs", random_state=42)`.
+No feature scaling. Hyperparameters (explicit):
+`LogisticRegression(C=1.0, max_iter=5000, solver="lbfgs", tol=1e-8, random_state=42)`.
+With three classes this fits a multinomial model. (The tight `tol` makes the fit
+converge to the unique optimum so results are reproducible regardless of row order.) Serialize the fitted estimator with
+`joblib` to `/app/artifacts/survival_model.joblib`. For a design row, `predict_proba`
+returns probabilities ordered by `classes_` (`[0, 1, 2]`); the cause-specific hazards are
+`h_1 = P(class 1)` and `h_2 = P(class 2)`.
 
-Serialize the fitted estimator with `joblib` to `/app/artifacts/survival_model.joblib`.
-The estimated hazard for any `(x, t)` is `predict_proba(...)[:, 1]` on the design row
-for period `t`.
+## 5. Milestone 3 — CIFs, risk scores, evaluation (test subjects)
 
-## 5. Milestone 3 — predictions and evaluation (test subjects)
-
-Using the saved model, for every `split = 'test'` subject compute the hazard at each
-period `t = 1 … K` and the survival curve `S(t | x)` per §2.
+For every `split = 'test'` subject, score all periods `t = 1 … K` (a full grid up to `K`,
+carrying the LOCF biomarker forward past the last visit), compute `h_1(t)`, `h_2(t)`, then
+`S(t)`, `CIF_1(t)`, `CIF_2(t)` per §2.
 
 ### 5.1 Output tables
 
-`survival_curves` — one row per test subject per period:
+`cif_curves` — one row per test subject per period:
 
 | column | type |
 |---|---|
 | `subject_id` | BIGINT |
 | `period` | INTEGER (1 … K) |
-| `survival_prob` | DOUBLE (= `S(period | x)`, in `[0, 1]`, non-increasing in period) |
+| `cif1` | DOUBLE (`CIF_1(period)`, non-decreasing in period) |
+| `cif2` | DOUBLE (`CIF_2(period)`, non-decreasing) |
+| `survival_prob` | DOUBLE (`S(period)`, non-increasing; `cif1+cif2+survival_prob = 1`) |
 
-`risk_scores` — one row per test subject:
+`risk_scores` — one row per test subject, `risk_score = CIF_1(K | x)`:
 
 | column | type |
 |---|---|
 | `subject_id` | BIGINT |
 | `risk_score` | DOUBLE |
 
-where `risk_score = 1 - S(K | x)` (probability of event by the final horizon `K`).
-
-`model_metrics` — one row per metric:
+`model_metrics` — one row per metric (`c_index`, `integrated_brier_score`):
 
 | column | type |
 |---|---|
-| `metric` | VARCHAR (`c_index`, `integrated_brier_score`) |
+| `metric` | VARCHAR |
 | `value` | DOUBLE |
 
 ### 5.2 Predictions file
 
-Also write `/app/artifacts/predictions.csv` with header
-`subject_id,risk_score,survival_prob_at_K` (one row per test subject; `survival_prob_at_K = S(K | x)`).
+Write `/app/artifacts/predictions.csv` with header
+`subject_id,cif1_at_K,cif2_at_K,survival_prob_at_K` (one row per test subject; the three
+values are `CIF_1(K)`, `CIF_2(K)`, `S(K)`).
 
-### 5.3 Concordance index `c_index` (Harrell, censoring-aware)
+### 5.3 Cause-1 concordance `c_index`
 
-Over all ordered pairs `(i, j)` of test subjects, a pair is **comparable** iff subject
-`i` has an event (`event_i = 1`) and `time_observed_i < time_observed_j`. A comparable
-pair is **concordant** iff `risk_score_i > risk_score_j` and **tied** iff
-`risk_score_i = risk_score_j`. Then
+Over ordered pairs `(i, j)` of test subjects, a pair is **comparable** iff subject `i` had
+a cause-1 event (`event_type_i = 1`) and `time_observed_i < time_observed_j`. It is
+**concordant** iff `risk_score_i > risk_score_j` and **tied** iff equal. Then
 
 ```
 c_index = ( #concordant + 0.5 · #tied ) / #comparable
 ```
 
-### 5.4 Integrated Brier Score `integrated_brier_score` (IPCW)
+### 5.4 Cause-1 Integrated Brier Score `integrated_brier_score` (IPCW)
 
-Let `G` be the Kaplan–Meier estimate of the **censoring** survival function on the test
-set, obtained by treating a censoring (`event = 0`) as the event of interest: stepping
-through the distinct observed times `u` in ascending order, `G(u) = G(prev) · (1 - c_u / n_u)`,
-where `c_u` is the number of test subjects censored at `u` and `n_u` is the number with
-`time_observed ≥ u`. `G` is a right-continuous step function (`G = 1` before the first
-observed time); evaluate `G(s)` as its value at the largest distinct observed time `≤ s`.
+Let `G` be the Kaplan–Meier estimate of the **censoring** survival function on the test set
+(treat `event_type = 0` as the event): stepping through distinct observed times `u` ascending,
+`G(u) = G(prev) · (1 - c_u / n_u)` where `c_u` = #subjects with `event_type = 0` at `u` and
+`n_u` = #subjects with `time_observed ≥ u`. `G` is right-continuous (`G = 1` before the first
+time); evaluate `G(s)` as its value at the largest distinct observed time `≤ s`.
 
-For a horizon `t` and test subject `i` with observed time `T_i`, indicator `δ_i`, and
-predicted survival `Ŝ_i(t) = S(t | x_i)`, the IPCW Brier score is
+For horizon `t` and test subject `i` with observed time `T_i`, `event_type` `δ_i`, and predicted
+`CIF_1,i(t)`:
 
 ```
 BS(t) = (1 / N_test) · Σ_i  b_i(t),  where
-  b_i(t) = Ŝ_i(t)^2 / G(T_i)          if T_i ≤ t and δ_i = 1
-  b_i(t) = (1 - Ŝ_i(t))^2 / G(t)      if T_i > t
-  b_i(t) = 0                          if T_i ≤ t and δ_i = 0   (censored before t)
+  b_i(t) = (CIF_1,i(t) - 1)^2 / G(T_i)   if T_i ≤ t and δ_i = 1
+  b_i(t) = (CIF_1,i(t))^2     / G(T_i)   if T_i ≤ t and δ_i = 2
+  b_i(t) = (CIF_1,i(t))^2     / G(t)     if T_i > t
+  b_i(t) = 0                             if T_i ≤ t and δ_i = 0   (censored before t)
 ```
-
-The Integrated Brier Score is the simple average over the `K` discrete horizons:
 
 ```
 integrated_brier_score = (1 / K) · Σ_{t=1..K} BS(t)
 ```
 
-### 5.3+ Acceptance floors
+### 5.5 Acceptance floors
 
-A correct pipeline on this dataset achieves `c_index ≥ 0.72` and
-`integrated_brier_score ≤ 0.18`.
+A correct pipeline achieves `c_index ≥ 0.62` and `integrated_brier_score ≤ 0.18`. The saved
+model must also reproduce the written `cif_curves` when reloaded.

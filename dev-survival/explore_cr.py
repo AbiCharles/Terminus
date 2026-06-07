@@ -1,23 +1,30 @@
-#!/usr/bin/env bash
-set -euo pipefail
-
-# Milestone 3 oracle: write the scoring CLI and run it. It reloads the model,
-# scores every test subject over periods 1..K with the LOCF biomarker carried
-# forward, computes cause-specific hazards, survival, and the cumulative
-# incidence functions, then evaluates the cause-1 C-index and competing-risks
-# IPCW Integrated Brier Score (per /app/spec.md §5) and writes cif_curves /
-# risk_scores / model_metrics plus /app/artifacts/predictions.csv.
-cat > /app/score.py <<'PY'
-"""Score test subjects: CIF curves, risk scores, cause-1 C-index and IPCW IBS."""
-import os
+"""Reference competing-risks + time-varying survival pipeline (dev tuning)."""
 
 import duckdb
-import joblib
 import numpy as np
 import pandas as pd
+from sklearn.linear_model import LogisticRegression
 
 K = 12
 FEATURES = ["age", "log_biomarker", "treatment", "stage_II", "stage_III", "sex_M", "period"]
+
+# person-period with LOCF biomarker via ASOF JOIN + 3-class period outcome
+PP_SQL = """
+WITH skeleton AS (
+    SELECT s.subject_id, CAST(p.period AS INTEGER) AS period,
+           s.age, s.treatment, s.stage, s.sex, s.split, s.time_observed, s.event_type
+    FROM subjects s, generate_series(1, s.time_observed) AS p(period)
+)
+SELECT k.subject_id, k.period, k.age, m.biomarker, k.treatment, k.stage, k.sex,
+       k.split, k.time_observed, k.event_type,
+       CASE WHEN k.event_type = 1 AND k.period = k.time_observed THEN 1
+            WHEN k.event_type = 2 AND k.period = k.time_observed THEN 2
+            ELSE 0 END AS period_outcome
+FROM skeleton k
+ASOF LEFT JOIN measurements m
+  ON m.subject_id = k.subject_id AND m.period <= k.period
+ORDER BY k.subject_id, k.period
+"""
 
 
 def design(df):
@@ -33,10 +40,12 @@ def design(df):
 
 
 def cif_curves(model, subjects, measurements):
+    """Return per-subject DataFrame with period, h1, h2, surv, cif1, cif2."""
     grid = subjects.loc[subjects.index.repeat(K)].copy()
     grid["period"] = np.tile(np.arange(1, K + 1), len(subjects))
-    grid = grid.sort_values("period")
+    # LOCF biomarker for each (subject, period) via merge_asof (on-key sorted globally)
     meas = measurements.sort_values("period")
+    grid = grid.sort_values("period")
     grid = pd.merge_asof(grid, meas, on="period", by="subject_id", direction="backward")
     proba = model.predict_proba(design(grid))
     cls = list(model.classes_)
@@ -46,13 +55,11 @@ def cif_curves(model, subjects, measurements):
     for _, g in grid.groupby("subject_id", sort=False):
         g = g.sort_values("period")
         h1, h2 = g["h1"].to_numpy(), g["h2"].to_numpy()
-        surv = np.cumprod(1.0 - h1 - h2)
-        surv_prev = np.concatenate([[1.0], surv[:-1]])
-        out.append(g.assign(
-            survival_prob=surv,
-            cif1=np.cumsum(h1 * surv_prev),
-            cif2=np.cumsum(h2 * surv_prev),
-        )[["subject_id", "period", "cif1", "cif2", "survival_prob"]])
+        surv_prev = np.concatenate([[1.0], np.cumprod(1.0 - h1 - h2)[:-1]])
+        cif1 = np.cumsum(h1 * surv_prev)
+        cif2 = np.cumsum(h2 * surv_prev)
+        g = g.assign(surv=np.cumprod(1.0 - h1 - h2), cif1=cif1, cif2=cif2)
+        out.append(g[["subject_id", "period", "cif1", "cif2", "surv"]])
     return pd.concat(out, ignore_index=True)
 
 
@@ -71,7 +78,7 @@ def c_index_cause1(time, etype, risk):
 
 def km_censoring(time, etype):
     time = np.asarray(time)
-    cens = np.asarray(etype) == 0
+    cens = (np.asarray(etype) == 0)
     g, prev, at_risk = {}, 1.0, len(time)
     for u in np.unique(time):
         c_u = int(np.sum((time == u) & cens))
@@ -120,42 +127,27 @@ def integrated_brier_cause1(curves, subjects):
 
 
 def main():
-    model = joblib.load("/app/artifacts/survival_model.joblib")
-    con = duckdb.connect("/app/survival.duckdb")
-    test = con.execute("SELECT * FROM subjects WHERE split = 'test'").df().reset_index(drop=True)
+    con = duckdb.connect("survival_cr.duckdb")
+    pp = con.execute(PP_SQL).df()
+    subjects = con.execute("SELECT * FROM subjects").df()
     measurements = con.execute("SELECT * FROM measurements").df()
-
-    curves = cif_curves(model, test, measurements)
-    risk = curves[curves["period"] == K].set_index("subject_id")["cif1"].rename("risk_score")
-    risk_df = risk.reset_index()
-    merged = test.merge(risk_df, on="subject_id")
-
-    c_index = c_index_cause1(merged["time_observed"], merged["event_type"], merged["risk_score"])
-    ibs = integrated_brier_cause1(curves, test)
-
-    at_k = curves[curves["period"] == K].set_index("subject_id")
-    preds = pd.DataFrame({
-        "subject_id": at_k.index,
-        "cif1_at_K": at_k["cif1"].to_numpy(),
-        "cif2_at_K": at_k["cif2"].to_numpy(),
-        "survival_prob_at_K": at_k["survival_prob"].to_numpy(),
-    })
-    os.makedirs("/app/artifacts", exist_ok=True)
-    preds.to_csv("/app/artifacts/predictions.csv", index=False)
-
-    metrics = pd.DataFrame({"metric": ["c_index", "integrated_brier_score"], "value": [c_index, ibs]})
-    con.execute("DROP TABLE IF EXISTS cif_curves")
-    con.execute("CREATE TABLE cif_curves AS SELECT * FROM curves")
-    con.execute("DROP TABLE IF EXISTS risk_scores")
-    con.execute("CREATE TABLE risk_scores AS SELECT * FROM risk_df")
-    con.execute("DROP TABLE IF EXISTS model_metrics")
-    con.execute("CREATE TABLE model_metrics AS SELECT * FROM metrics")
     con.close()
-    print(f"c_index={c_index:.4f} integrated_brier_score={ibs:.4f}")
+
+    train = pp[pp["split"] == "train"]
+    model = LogisticRegression(C=1.0, max_iter=2000, solver="lbfgs", random_state=42)
+    model.fit(design(train), train["period_outcome"].to_numpy(int))
+
+    test = subjects[subjects["split"] == "test"].reset_index(drop=True)
+    curves = cif_curves(model, test, measurements)
+    risk1 = curves[curves["period"] == K].set_index("subject_id")["cif1"]
+    merged = test.set_index("subject_id").join(risk1.rename("risk1"))
+    c = c_index_cause1(merged["time_observed"], merged["event_type"], merged["risk1"])
+    ibs = integrated_brier_cause1(curves, test)
+    print(f"pp rows {len(pp)} | classes {list(model.classes_)} | null biomarker {pp.biomarker.isna().sum()}")
+    print(f"cause1 C-index: {c:.4f}")
+    print(f"cause1 IPCW IBS: {ibs:.4f}")
+    print(f"coef cause1: {dict(zip(FEATURES, model.coef_[list(model.classes_).index(1)].round(3)))}")
 
 
 if __name__ == "__main__":
     main()
-PY
-
-python3 /app/score.py

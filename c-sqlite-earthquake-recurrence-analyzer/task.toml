@@ -1,0 +1,73 @@
+# Task configuration schema version
+version = "2.0"
+
+# Task metadata (author, difficulty, categorization)
+[metadata]
+author_name = "Abigail Charles"
+author_email = "warriorp8@gmail.com"
+difficulty = "hard"
+category = "scientific-computing"
+# Options for subcategories are: "long_context", "tool_specific", "api_integration", "db_interaction", "ui_building"
+subcategories = ["tool_specific", "db_interaction"]
+# Total milestone count — must match the number of [[steps]] blocks below
+number_of_milestones = 3
+# Size of the codebase: minimal -> 0-20 files, small -> 20+ files, large -> 200+ files
+codebase_size = "minimal"
+# Coding languages used in the oracle solution or required by the agent
+languages = ["c", "sql"]
+# For tool_specific, api_integration, and db_interaction subcategories, please include specific tool, api framework, or database software
+tags = ["sqlite", "c", "seismology", "gutenberg-richter", "statistics"]
+# Estimated time to complete (minutes)
+expert_time_estimate_min = 120
+junior_time_estimate_min = 240
+
+# The agent writes and compiles a C CLI (linked against libsqlite3) that reads the
+# provided earthquake catalog at /app/catalog.db. Milestone 1 adds a `query`
+# subcommand that filters events by named region and/or lat/lon bounding box, date
+# range, depth and magnitude entirely through SQL and writes a deterministic CSV.
+# Milestone 2 adds a `stats` subcommand that estimates the magnitude of
+# completeness (Wiemer & Wyss goodness-of-fit), the Gutenberg-Richter b-value
+# (Aki-Utsu MLE with Shi & Bolt uncertainty) and a-value, writing a JSON summary.
+# Milestone 3 adds a `report` subcommand that writes a deterministic
+# frequency-magnitude CSV and a JSON summary with Poisson exceedance
+# probabilities. The tool exits nonzero on invalid filters and insufficient
+# sample sizes.
+
+# Sandbox environment limits — applied across all milestones (the same container is shared)
+[environment]
+allow_internet = false
+build_timeout_sec = 1200.0
+cpus = 4
+memory_mb = 8192
+storage_mb = 12288
+workdir = "/app"
+
+# Milestone 1 — Query Earthquake Catalog: filter events via SQL to a deterministic CSV
+[[steps]]
+name = "milestone_1"
+
+[steps.agent]
+timeout_sec = 1800.0
+
+[steps.verifier]
+timeout_sec = 450.0
+
+# Milestone 2 — Compute Seismic Statistics: completeness, b-value and a-value
+[[steps]]
+name = "milestone_2"
+
+[steps.agent]
+timeout_sec = 1800.0
+
+[steps.verifier]
+timeout_sec = 450.0
+
+# Milestone 3 — Generate Deterministic Reports: FMD CSV + JSON with exceedance probabilities
+[[steps]]
+name = "milestone_3"
+
+[steps.agent]
+timeout_sec = 1800.0
+
+[steps.verifier]
+timeout_sec = 450.0

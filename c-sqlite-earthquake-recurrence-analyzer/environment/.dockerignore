@@ -1,0 +1,17 @@
+# Build context hygiene — only the Dockerfile and the generator are needed.
+.git
+.gitignore
+.env
+**/__pycache__/
+**/*.pyc
+**/*.pyo
+**/.pytest_cache/
+**/.mypy_cache/
+**/.ruff_cache/
+**/node_modules/
+.ipynb_checkpoints/
+.DS_Store
+*.log
+*.db
+quake
+quake.c

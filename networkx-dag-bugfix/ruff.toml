@@ -1,0 +1,2 @@
+# The vendored networkx source is third-party and not linted.
+extend-exclude = ["environment/networkx-src"]

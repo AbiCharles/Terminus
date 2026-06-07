@@ -13,7 +13,6 @@ from sklearn.compose import ColumnTransformer
 from sklearn.ensemble import GradientBoostingClassifier
 from sklearn.linear_model import LogisticRegression
 from sklearn.metrics import accuracy_score, f1_score, roc_auc_score
-from sklearn.model_selection import train_test_split
 from sklearn.pipeline import Pipeline
 from sklearn.preprocessing import OneHotEncoder, StandardScaler
 
@@ -73,13 +72,8 @@ def _dpd(predictions, group_series):
 
 
 def _split(df):
-    train_df, holdout_df = train_test_split(
-        df, test_size=0.30, random_state=SEED, stratify=df[TARGET]
-    )
-    _val_df, test_df = train_test_split(
-        holdout_df, test_size=0.50, random_state=SEED, stratify=holdout_df[TARGET]
-    )
-    return train_df, test_df
+    # The canonical partition is materialised in the dataset's `split` column.
+    return df[df["split"] == "train"], df[df["split"] == "test"]
 
 
 def compute_reference():

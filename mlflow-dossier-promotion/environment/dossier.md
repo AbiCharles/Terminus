@@ -118,6 +118,12 @@ validation fold is reserved for threshold tuning and is not used to compute the 
 for the current candidate roster. (Edition 1 used an 80/10/10 split seeded with random state 7; this
 is superseded by the 70/15/15 protocol above.)
 
+To remove any ambiguity about partition order, the canonical result of this protocol is materialised
+in `data.csv` as a `split` column whose value is `train`, `validation`, or `test` for each row.
+Consumers must use this `split` column directly as the train/validation/test assignment rather than
+re-deriving the partition; models are fit on the `train` rows and every reported metric is computed
+on the `test` rows.
+
 ## §8 Candidate Model Roster
 
 The model risk team has pre-registered the following three candidate configurations for this

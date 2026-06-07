@@ -17,7 +17,6 @@ from sklearn.compose import ColumnTransformer
 from sklearn.ensemble import GradientBoostingClassifier
 from sklearn.linear_model import LogisticRegression
 from sklearn.metrics import accuracy_score, f1_score, roc_auc_score
-from sklearn.model_selection import train_test_split
 from sklearn.pipeline import Pipeline
 from sklearn.preprocessing import OneHotEncoder, StandardScaler
 
@@ -29,18 +28,14 @@ numeric = policy["feature_policy"]["numeric"]
 categorical = policy["feature_policy"]["categorical"]
 prohibited = policy["feature_policy"]["prohibited"]
 protected = [s["column"] for s in policy["bias_slices"]]
-seed = policy["data_split"]["random_state"]
 artifact_path = policy["model_artifact_path"]
 
 df = pd.read_csv("/app/data.csv")
 
-# §7 sampling protocol: stratified 70/15/15 via two seeded stratified draws.
-train_df, holdout_df = train_test_split(
-    df, test_size=0.30, random_state=seed, stratify=df[target]
-)
-_val_df, test_df = train_test_split(
-    holdout_df, test_size=0.50, random_state=seed, stratify=holdout_df[target]
-)
+# The canonical 70/15/15 partition is materialised in the dataset's `split`
+# column; train on the train fold and evaluate on the test fold.
+train_df = df[df["split"] == "train"]
+test_df = df[df["split"] == "test"]
 
 
 def demographic_parity_difference(predictions, group_series):

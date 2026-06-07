@@ -1,0 +1,71 @@
+# Task configuration schema version
+version = "2.0"
+
+# Task metadata (author, difficulty, categorization)
+[metadata]
+author_name = "Abigail Charles"
+author_email = "warriorp8@gmail.com"
+difficulty = "hard"
+category = "machine-learning"
+# Options for subcategories are: "long_context", "tool_specific", "api_integration", "db_interaction", "ui_building"
+subcategories = ["db_interaction", "tool_specific"]
+# Total milestone count — must match the number of [[steps]] blocks below
+number_of_milestones = 3
+# Size of the codebase: minimal -> 0-20 files, small -> 20+ files, large -> 200+ files
+codebase_size = "minimal"
+# Coding languages used in the oracle solution or required by the agent
+languages = ["python", "sql"]
+# For tool_specific, api_integration, and db_interaction subcategories, please include specific tool, api framework, or database software
+tags = ["duckdb", "scikit-learn", "survival-analysis", "sql", "discrete-time-hazard"]
+# Estimated time to complete (minutes)
+expert_time_estimate_min = 150
+junior_time_estimate_min = 300
+
+# The agent connects to the DuckDB database at /app/survival.duckdb (table
+# `subjects`) and follows the contract in /app/spec.md. Milestone 1 builds the
+# discrete-time person-period training table `person_period` with SQL. Milestone
+# 2 trains a discrete-time logistic-regression hazard model on the person-period
+# rows and serializes it to /app/artifacts/survival_model.joblib. Milestone 3
+# produces per-subject survival curves (table `survival_curves`), risk scores
+# (table `risk_scores`), evaluation metrics (table `model_metrics` with c_index
+# and integrated_brier_score), and a predictions file /app/artifacts/predictions.csv,
+# all written back into the database and reloadable from the saved model.
+
+# Sandbox environment limits — applied across all milestones (the same container is shared)
+[environment]
+allow_internet = false
+build_timeout_sec = 1200.0
+cpus = 4
+memory_mb = 8192
+storage_mb = 12288
+workdir = "/app"
+
+# Milestone 1 — Build Person-Period Feature Table: discrete-time expansion via SQL
+[[steps]]
+name = "milestone_1"
+
+[steps.agent]
+timeout_sec = 1800.0
+
+[steps.verifier]
+timeout_sec = 600.0
+
+# Milestone 2 — Train Discrete-Time Hazard Model: fit logistic regression, serialize artifact
+[[steps]]
+name = "milestone_2"
+
+[steps.agent]
+timeout_sec = 2400.0
+
+[steps.verifier]
+timeout_sec = 600.0
+
+# Milestone 3 — Survival Curves, Risk Scores & Metrics: write predictions and c_index/IBS back to DuckDB
+[[steps]]
+name = "milestone_3"
+
+[steps.agent]
+timeout_sec = 2400.0
+
+[steps.verifier]
+timeout_sec = 600.0

@@ -1,0 +1,1 @@
+Milestone 2: train the discrete-time hazard model on the `person_period` rows from milestone 1, using the exact design matrix and hyperparameters given in `/app/spec.md`, fit on the training split. Serialize the fitted model with joblib to `/app/artifacts/survival_model.joblib`.

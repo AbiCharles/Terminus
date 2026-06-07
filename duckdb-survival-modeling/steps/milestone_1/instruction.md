@@ -1,0 +1,5 @@
+I need a discrete-time survival pipeline built on top of a clinical follow-up dataset that lives in DuckDB. The full contract — table schemas, the model, and the metric definitions — is written up in `/app/spec.md`; read it before you start.
+
+The database is at `/app/survival.duckdb`. It has a `subjects` table: one row per patient, with baseline covariates and right-censored follow-up over 12 discrete periods. Over three milestones you'll (1) turn the subjects into discrete-time person-period training rows, (2) train a logistic-regression hazard model and serialize it, and (3) write per-subject survival curves, risk scores, and evaluation metrics back into the database plus a predictions file. Work directly against `/app/survival.duckdb` throughout.
+
+Milestone 1: build the `person_period` table in `/app/survival.duckdb` by expanding each subject into the discrete-time rows defined in `/app/spec.md` (one row per subject per follow-up period, carrying the baseline covariates and the period-level event flag). Build it with SQL against the `subjects` table.

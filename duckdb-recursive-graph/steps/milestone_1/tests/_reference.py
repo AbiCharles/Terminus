@@ -1,28 +1,25 @@
-"""Independent reference for the recursive-graph + sessionization task.
+"""Independent reference for the recursive-graph task.
 
-Recomputes, from the raw `nodes`, `edges`, and `activations` tables alone, the
-transitive reachability closure, the single-source minimum-hop distances, and the
-activation sessions — using plain Python BFS and pandas (a different method than
-the agent's SQL). It is the verifier's answer key; the agent has no access to it.
+Recomputes, from the raw `nodes` and `edges` tables alone, the transitive
+reachability closure, the strongly connected components (min-id labelled), and the
+shortest cycle length through each node on a cycle — using plain Python (BFS +
+Kosaraju), a different method than the agent's recursive SQL. It is the verifier's
+answer key; the agent has no access to it.
 """
 
 from collections import defaultdict, deque
 
 import duckdb
-import pandas as pd
 
 DB_PATH = "/app/graph.duckdb"
-SOURCE = 1
-GAP_MINUTES = 30
 
 
 def load():
     con = duckdb.connect(DB_PATH, read_only=True)
-    nodes = con.execute("SELECT * FROM nodes").df()
+    nodes = [r[0] for r in con.execute("SELECT node_id FROM nodes ORDER BY node_id").fetchall()]
     edges = con.execute("SELECT src, dst FROM edges").fetchall()
-    activations = con.execute("SELECT node_id, ts FROM activations").df()
     con.close()
-    return nodes, edges, activations
+    return nodes, edges
 
 
 def adjacency(edges):
@@ -51,27 +48,65 @@ def reachability_pairs(edges):
     return pairs
 
 
-def shortest_from_source(edges, source=SOURCE):
-    """Min hops from source via BFS; dict node -> distance, includes source at 0."""
+def strongly_connected_components(edges, node_ids):
+    """Kosaraju; returns dict node -> component_id (min node id in its SCC)."""
+    adj, radj = defaultdict(list), defaultdict(list)
+    for s, d in edges:
+        adj[s].append(d)
+        radj[d].append(s)
+    visited, order = set(), []
+    for u in node_ids:
+        if u in visited:
+            continue
+        stack = [(u, iter(adj[u]))]
+        visited.add(u)
+        while stack:
+            n, it = stack[-1]
+            adv = next(it, None)
+            if adv is None:
+                order.append(n)
+                stack.pop()
+            elif adv not in visited:
+                visited.add(adv)
+                stack.append((adv, iter(adj[adv])))
+    comp = {}
+    for u in reversed(order):
+        if u in comp:
+            continue
+        members, stack = [], [u]
+        comp[u] = u
+        while stack:
+            n = stack.pop()
+            members.append(n)
+            for v in radj[n]:
+                if v not in comp:
+                    comp[v] = u
+                    stack.append(v)
+        rep = min(members)
+        for m in members:
+            comp[m] = rep
+    for u in node_ids:
+        comp.setdefault(u, u)
+    return comp
+
+
+def shortest_cycles(edges, node_ids):
+    """BFS from each node back to itself; returns dict node -> shortest cycle length."""
     adj = adjacency(edges)
-    dist = {source: 0}
-    q = deque([source])
-    while q:
-        u = q.popleft()
-        for v in adj[u]:
-            if v not in dist:
-                dist[v] = dist[u] + 1
-                q.append(v)
-    return dist
-
-
-def sessions(activations):
-    """Gaps-and-islands: new session when gap strictly > 30 minutes."""
-    acts = activations.sort_values(["node_id", "ts"]).copy()
-    gap = acts.groupby("node_id")["ts"].diff()
-    acts["is_new"] = gap.isna() | (gap > pd.Timedelta(minutes=GAP_MINUTES))
-    acts["session_index"] = acts.groupby("node_id")["is_new"].cumsum()
-    out = acts.groupby(["node_id", "session_index"]).agg(
-        start_ts=("ts", "min"), end_ts=("ts", "max"), num_events=("ts", "size"),
-    ).reset_index()
+    out = {}
+    for start in node_ids:
+        dist = {start: 0}
+        q = deque([start])
+        found = None
+        while q and found is None:
+            u = q.popleft()
+            for v in adj[u]:
+                if v == start:
+                    found = dist[u] + 1
+                    break
+                if v not in dist:
+                    dist[v] = dist[u] + 1
+                    q.append(v)
+        if found is not None:
+            out[start] = found
     return out

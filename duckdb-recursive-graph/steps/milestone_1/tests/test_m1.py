@@ -33,13 +33,13 @@ class TestMilestone1:
 
     def test_source_tables_intact(self, raw):
         """The source nodes/edges tables must be intact (200 nodes; edges present)."""
-        nodes, edges, _ = raw
+        nodes, edges = raw
         assert len(nodes) == 200, f"expected 200 nodes, found {len(nodes)}"
         assert len(edges) > 0, "edges table is empty"
 
     def test_reachability_matches_reference(self, agent_pairs, raw):
         """The set of (node_id, reachable_id) pairs must equal the BFS transitive closure."""
-        _, edges, _ = raw
+        _, edges = raw
         expected = _reference.reachability_pairs(edges)
         actual = set(agent_pairs)
         assert len(agent_pairs) == len(actual), "reachability contains duplicate pairs"
@@ -49,8 +49,8 @@ class TestMilestone1:
         assert not extra, f"{len(extra)} spurious pairs present (e.g. {sorted(extra)[:3]})"
 
     def test_cycle_self_pairs_present(self, agent_pairs, raw):
-        """A node appears as its own reachable target iff it lies on a cycle (non-trivial closure)."""
-        _, edges, _ = raw
+        """A node appears as its own reachable target iff it lies on a cycle."""
+        _, edges = raw
         expected_self = {a for (a, b) in _reference.reachability_pairs(edges) if a == b}
         actual_self = {a for (a, b) in agent_pairs if a == b}
         assert expected_self, "fixture sanity: there should be nodes on cycles"

@@ -1,45 +1,33 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-# Milestone 3 oracle: sessionize each node's activations with window functions.
-# A gap STRICTLY greater than 30 minutes starts a new session (a gap of exactly
-# 30 minutes does not); a running sum over the new-session flags numbers the
-# sessions per node (per /app/spec.md §4).
-cat > /app/build_sessions.py <<'PY'
-"""Create the sessions table by gaps-and-islands over activations."""
+# Milestone 3 oracle: shortest cycle through each node on a cycle. A recursive
+# walk carries its start node; it stops expanding once it returns to the start,
+# and a hop bound keeps it finite despite cycles. The minimum hop count at which a
+# walk returns to its start is that node's shortest cycle length (per /app/spec.md §4).
+cat > /app/build_shortest_cycles.py <<'PY'
+"""Create the shortest_cycles table: min cycle length per node on a cycle."""
 import duckdb
 
 con = duckdb.connect("/app/graph.duckdb")
-con.execute("DROP TABLE IF EXISTS sessions")
+con.execute("DROP TABLE IF EXISTS shortest_cycles")
 con.execute(
     """
-    CREATE TABLE sessions AS
-    WITH ordered AS (
-        SELECT node_id, ts,
-               LAG(ts) OVER (PARTITION BY node_id ORDER BY ts) AS prev_ts
-        FROM activations
-    ),
-    flagged AS (
-        SELECT node_id, ts,
-               CASE WHEN prev_ts IS NULL OR ts - prev_ts > INTERVAL 30 MINUTE
-                    THEN 1 ELSE 0 END AS is_new
-        FROM ordered
-    ),
-    numbered AS (
-        SELECT node_id, ts,
-               SUM(is_new) OVER (PARTITION BY node_id ORDER BY ts
-                                 ROWS UNBOUNDED PRECEDING) AS session_index
-        FROM flagged
+    CREATE TABLE shortest_cycles AS
+    WITH RECURSIVE walk(start, node, hops) AS (
+        SELECT src, dst, 1 FROM edges
+        UNION
+        SELECT w.start, e.dst, w.hops + 1
+        FROM walk w JOIN edges e ON e.src = w.node
+        WHERE w.node <> w.start AND w.hops < (SELECT COUNT(*) FROM nodes)
     )
-    SELECT node_id, session_index,
-           MIN(ts) AS start_ts, MAX(ts) AS end_ts, COUNT(*) AS num_events
-    FROM numbered
-    GROUP BY node_id, session_index
+    SELECT start AS node_id, MIN(hops) AS shortest_cycle_len
+    FROM walk WHERE node = start GROUP BY start
     """
 )
-n = con.execute("SELECT COUNT(*) FROM sessions").fetchone()[0]
+n = con.execute("SELECT COUNT(*) FROM shortest_cycles").fetchone()[0]
 con.close()
-print(f"sessions: {n}")
+print(f"nodes on a cycle: {n}")
 PY
 
-python3 /app/build_sessions.py
+python3 /app/build_shortest_cycles.py

@@ -16,20 +16,19 @@ codebase_size = "minimal"
 # Coding languages used in the oracle solution or required by the agent
 languages = ["sql", "python"]
 # For tool_specific, api_integration, and db_interaction subcategories, please include specific tool, api framework, or database software
-tags = ["duckdb", "recursive-cte", "graph", "sql", "window-functions"]
+tags = ["duckdb", "recursive-cte", "graph", "sql", "strongly-connected-components"]
 # Estimated time to complete (minutes)
-expert_time_estimate_min = 120
-junior_time_estimate_min = 240
+expert_time_estimate_min = 150
+junior_time_estimate_min = 300
 
-# The agent connects to the DuckDB database at /app/graph.duckdb (tables `nodes`,
-# `edges` (a directed graph that contains cycles), and `activations` (timestamped
-# events)) and follows the contract in /app/spec.md. Milestone 1 builds the
-# transitive-reachability table `reachability` with a recursive CTE that
-# terminates on cycles. Milestone 2 builds the single-source minimum-hop distance
-# table `shortest_paths` from the designated source node. Milestone 3 builds the
-# `sessions` table by grouping each node's activations into sessions split on
-# gaps strictly greater than 30 minutes. All outputs are written back into
-# /app/graph.duckdb.
+# The agent connects to the DuckDB database at /app/graph.duckdb (tables `nodes`
+# and `edges`, a directed graph that contains cycles) and follows the contract in
+# /app/spec.md. Milestone 1 builds the transitive-reachability table `reachability`
+# with a recursive CTE that terminates on cycles. Milestone 2 builds the
+# `components` table labelling each node with the minimum node id of its strongly
+# connected component. Milestone 3 builds the `shortest_cycles` table giving the
+# shortest directed cycle length through each node that lies on a cycle. All
+# outputs are written back into /app/graph.duckdb.
 
 # Sandbox environment limits — applied across all milestones (the same container is shared)
 [environment]
@@ -50,7 +49,7 @@ timeout_sec = 1800.0
 [steps.verifier]
 timeout_sec = 600.0
 
-# Milestone 2 — Single-Source Shortest Paths: minimum hop distance via bounded recursion
+# Milestone 2 — Strongly Connected Components: min-id component labelling via mutual reachability
 [[steps]]
 name = "milestone_2"
 
@@ -60,7 +59,7 @@ timeout_sec = 1800.0
 [steps.verifier]
 timeout_sec = 600.0
 
-# Milestone 3 — Activation Sessionization: gaps-and-islands over the timestamped log
+# Milestone 3 — Shortest Cycles: shortest directed cycle length per node on a cycle
 [[steps]]
 name = "milestone_3"
 

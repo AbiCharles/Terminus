@@ -1,8 +1,9 @@
-"""Tests for milestone 2 (Single-Source Shortest Paths).
+"""Tests for milestone 2 (Strongly Connected Components).
 Run alone with: pytest tests/test_m2.py
 
-Verifies the agent's `shortest_paths` table gives the minimum hop distance from
-node 1 to every reachable node, recomputed independently with Python BFS (/app/spec.md §3).
+Verifies the agent's `components` table labels each node with the minimum node id
+of its strongly connected component, recomputed independently with Kosaraju's
+algorithm (/app/spec.md §3).
 """
 
 import duckdb
@@ -19,17 +20,17 @@ def raw():
 
 
 @pytest.fixture(scope="module")
-def agent_dist():
+def agent_components():
     con = duckdb.connect(DB_PATH, read_only=True)
     try:
-        rows = con.execute("SELECT node_id, distance FROM shortest_paths").fetchall()
+        rows = con.execute("SELECT node_id, component_id FROM components").fetchall()
     finally:
         con.close()
     return rows
 
 
 class TestMilestone2:
-    """Milestone 2: minimum-hop shortest paths from the source node."""
+    """Milestone 2: strongly connected components, labelled by minimum node id."""
 
     def test_reachability_persists(self):
         """The reachability table from milestone 1 must still exist (state persists)."""
@@ -40,19 +41,33 @@ class TestMilestone2:
             con.close()
         assert "reachability" in tables, "reachability missing — was milestone 1 completed?"
 
-    def test_distances_match_reference(self, agent_dist, raw):
-        """node->distance must equal BFS min-hops from node 1 (same node set, same values)."""
-        _, edges, _ = raw
-        expected = _reference.shortest_from_source(edges)
-        actual = dict(agent_dist)
-        assert len(agent_dist) == len(actual), "shortest_paths has duplicate node_id rows"
-        assert set(actual) == set(expected), (
-            "the set of reachable nodes does not match BFS from the source"
-        )
-        wrong = {k: (actual[k], expected[k]) for k in expected if actual[k] != expected[k]}
-        assert not wrong, f"{len(wrong)} nodes have a wrong distance (e.g. {dict(list(wrong.items())[:3])})"
+    def test_one_row_per_node(self, agent_components, raw):
+        """components must have exactly one row per node."""
+        nodes, _ = raw
+        mapping = dict(agent_components)
+        assert len(agent_components) == len(mapping), "components has duplicate node_id rows"
+        assert set(mapping) == set(nodes), "components must cover every node exactly once"
 
-    def test_source_distance_zero(self, agent_dist):
-        """The source node 1 must be present with distance 0."""
-        actual = dict(agent_dist)
-        assert actual.get(1) == 0, "source node 1 must appear with distance 0"
+    def test_components_match_reference(self, agent_components, raw):
+        """Every node's component_id must equal Kosaraju's min-id SCC label."""
+        nodes, edges = raw
+        expected = _reference.strongly_connected_components(edges, nodes)
+        actual = dict(agent_components)
+        wrong = {k: (actual[k], expected[k]) for k in expected if actual.get(k) != expected[k]}
+        assert not wrong, f"{len(wrong)} nodes have a wrong component_id (e.g. {dict(list(wrong.items())[:3])})"
+
+    def test_nontrivial_components_found(self, agent_components, raw):
+        """Sanity: the cyclic structure yields several multi-node components."""
+        nodes, edges = raw
+        expected = _reference.strongly_connected_components(edges, nodes)
+        sizes = {}
+        for c in expected.values():
+            sizes[c] = sizes.get(c, 0) + 1
+        nontrivial = sum(1 for s in sizes.values() if s > 1)
+        assert nontrivial >= 2, "fixture sanity: expected multiple non-trivial components"
+        actual_nontrivial = {}
+        for _, c in agent_components:
+            actual_nontrivial[c] = actual_nontrivial.get(c, 0) + 1
+        assert sum(1 for s in actual_nontrivial.values() if s > 1) == nontrivial, (
+            "number of non-trivial components does not match the reference"
+        )

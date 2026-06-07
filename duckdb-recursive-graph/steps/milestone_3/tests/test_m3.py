@@ -1,13 +1,11 @@
-"""Tests for milestone 3 (Activation Sessionization).
+"""Tests for milestone 3 (Shortest Cycle Through Each Node).
 Run alone with: pytest tests/test_m3.py
 
-Verifies the agent's `sessions` table groups activations into gaps-and-islands
-sessions split on gaps strictly greater than 30 minutes, recomputed independently
-with pandas (/app/spec.md §4).
+Verifies the agent's `shortest_cycles` table gives, for every node on a cycle, the
+minimum cycle length through it, recomputed independently with Python BFS (/app/spec.md §4).
 """
 
 import duckdb
-import pandas as pd
 import pytest
 
 import _reference
@@ -21,19 +19,17 @@ def raw():
 
 
 @pytest.fixture(scope="module")
-def agent_sessions():
+def agent_cycles():
     con = duckdb.connect(DB_PATH, read_only=True)
     try:
-        df = con.execute(
-            "SELECT node_id, session_index, start_ts, end_ts, num_events FROM sessions"
-        ).df()
+        rows = con.execute("SELECT node_id, shortest_cycle_len FROM shortest_cycles").fetchall()
     finally:
         con.close()
-    return df
+    return rows
 
 
 class TestMilestone3:
-    """Milestone 3: activation sessionization (gaps-and-islands)."""
+    """Milestone 3: shortest directed cycle length per node on a cycle."""
 
     def test_prior_artifacts_persist(self):
         """Milestone 1/2 tables must still exist (state persists)."""
@@ -42,36 +38,21 @@ class TestMilestone3:
             tables = {r[0] for r in con.execute("SHOW TABLES").fetchall()}
         finally:
             con.close()
-        assert {"reachability", "shortest_paths"} <= tables, "earlier milestone tables missing"
+        assert {"reachability", "components"} <= tables, "earlier milestone tables missing"
 
-    def test_schema_and_row_count(self, agent_sessions, raw):
-        """sessions must have the required columns and the reference number of rows."""
-        _, _, activations = raw
-        assert {"node_id", "session_index", "start_ts", "end_ts", "num_events"} <= set(agent_sessions.columns)
-        expected = _reference.sessions(activations)
-        assert len(agent_sessions) == len(expected), (
-            f"expected {len(expected)} sessions, found {len(agent_sessions)} "
-            "(check the strictly-greater-than-30-minutes boundary)"
+    def test_cycles_match_reference(self, agent_cycles, raw):
+        """Exactly the nodes on cycles must appear, each with the correct shortest cycle length."""
+        nodes, edges = raw
+        expected = _reference.shortest_cycles(edges, nodes)
+        actual = dict(agent_cycles)
+        assert len(agent_cycles) == len(actual), "shortest_cycles has duplicate node_id rows"
+        assert set(actual) == set(expected), (
+            "the set of nodes on cycles does not match the reference "
+            "(non-cycle nodes must be excluded; cycle nodes must all appear)"
         )
+        wrong = {k: (actual[k], expected[k]) for k in expected if actual[k] != expected[k]}
+        assert not wrong, f"{len(wrong)} nodes have a wrong shortest_cycle_len (e.g. {dict(list(wrong.items())[:3])})"
 
-    def test_sessions_match_reference(self, agent_sessions, raw):
-        """Each (node_id, session_index) must match the reference start/end/num_events exactly."""
-        _, _, activations = raw
-        expected = _reference.sessions(activations)
-        exp = expected.set_index(["node_id", "session_index"]).sort_index()
-        got = agent_sessions.copy()
-        got["start_ts"] = pd.to_datetime(got["start_ts"])
-        got["end_ts"] = pd.to_datetime(got["end_ts"])
-        got = got.set_index(["node_id", "session_index"]).sort_index()
-        assert set(got.index) == set(exp.index), "session keys (node_id, session_index) do not match"
-        joined = exp.join(got, rsuffix="_agent")
-        bad_n = joined[joined["num_events"] != joined["num_events_agent"]]
-        assert bad_n.empty, f"{len(bad_n)} sessions have a wrong num_events"
-        bad_start = joined[joined["start_ts"] != joined["start_ts_agent"]]
-        bad_end = joined[joined["end_ts"] != joined["end_ts_agent"]]
-        assert bad_start.empty and bad_end.empty, "session start_ts/end_ts do not match the reference"
-
-    def test_session_index_starts_at_one(self, agent_sessions):
-        """Each node's session numbering must start at 1."""
-        first = agent_sessions.groupby("node_id")["session_index"].min()
-        assert (first == 1).all(), "session_index must start at 1 for every node"
+    def test_lengths_are_positive(self, agent_cycles):
+        """Every shortest cycle length must be a positive integer."""
+        assert all(length >= 1 for _, length in agent_cycles), "shortest_cycle_len must be >= 1"

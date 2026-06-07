@@ -90,7 +90,9 @@ class TestMilestone1:
 
     def test_bias_ceilings(self, policy):
         """Fairness ceilings must be age_group 0.12, gender 0.10, region 0.15 (§11)."""
+        assert len(policy["bias_slices"]) == 3, "exactly three protected-attribute slices expected"
         ceilings = {s["column"]: s["max_disparity"] for s in policy["bias_slices"]}
+        assert set(ceilings) == {"age_group", "gender", "region"}
         assert math.isclose(ceilings["age_group"], 0.12, abs_tol=1e-9)
         assert math.isclose(ceilings["gender"], 0.10, abs_tol=1e-9)
         assert math.isclose(ceilings["region"], 0.15, abs_tol=1e-9)

@@ -63,11 +63,19 @@ class TestMilestone2:
         )
 
     def test_required_params_logged(self, runs_by_model):
-        """Each candidate run must log the estimator family and its random_state param."""
+        """Each run must log model_type, estimator, random_state and the candidate hyperparameters as params."""
         for name in EXPECTED_CANDIDATES:
             params = runs_by_model[name].data.params
+            assert params.get("model_type") == name, f"{name} must log model_type param = {name}"
             assert "estimator" in params, f"{name} missing 'estimator' param"
             assert params.get("random_state") == "42", f"{name} must log random_state=42"
+            if name == "logreg_baseline":
+                assert params.get("C") == "1.0", f"{name} must log C=1.0"
+                assert params.get("max_iter") == "1000", f"{name} must log max_iter=1000"
+            else:
+                assert params.get("n_estimators") == "200", f"{name} must log n_estimators=200"
+                assert params.get("max_depth") == "3", f"{name} must log max_depth=3"
+                assert params.get("learning_rate") == "0.1", f"{name} must log learning_rate=0.1"
 
     def test_required_metrics_logged(self, runs_by_model):
         """Each candidate run must log accuracy, f1_macro, roc_auc and a dpd metric per protected slice."""

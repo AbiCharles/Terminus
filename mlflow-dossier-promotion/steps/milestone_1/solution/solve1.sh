@@ -98,12 +98,15 @@ policy = {
          "params": compliant_params},
     ],
     "rollback_conditions": [
-        {"id": "auc_floor", "metric": "roc_auc", "operator": "<",
-         "threshold": find(r"`auc_floor`, fires when the monitored production ROC-AUC falls below ([0-9]+\.[0-9]+)", cast=float)},
-        {"id": "drift_psi", "metric": "population_stability_index", "operator": ">",
-         "threshold": find(r"`drift_psi`, fires when the population stability index .*? rises above ([0-9]+\.[0-9]+)", cast=float)},
-        {"id": "approval_rate_floor", "metric": "weekly_approval_rate", "operator": "<",
-         "threshold": find(r"`approval_rate_floor`, fires when the weekly approval rate falls below ([0-9]+\.[0-9]+)", cast=float)},
+        {"id": "auc_floor",
+         "metric": find(r"`auc_floor`[^.]*?metric `(\w+)`"), "operator": "<",
+         "threshold": find(r"`auc_floor`[^.]*?falls below ([0-9]+\.[0-9]+)", cast=float)},
+        {"id": "drift_psi",
+         "metric": find(r"`drift_psi`[^.]*?metric `(\w+)`"), "operator": ">",
+         "threshold": find(r"`drift_psi`[^.]*?rises above ([0-9]+\.[0-9]+)", cast=float)},
+        {"id": "approval_rate_floor",
+         "metric": find(r"`approval_rate_floor`[^.]*?metric `(\w+)`"), "operator": "<",
+         "threshold": find(r"`approval_rate_floor`[^.]*?falls below ([0-9]+\.[0-9]+)", cast=float)},
     ],
 }
 

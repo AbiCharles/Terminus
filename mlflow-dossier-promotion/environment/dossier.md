@@ -211,11 +211,14 @@ and are not registered as the champion.
 ## §13 Rollback and Monitoring Conditions
 
 After promotion, the champion is monitored continuously and is automatically rolled back to the prior
-champion if any of the following triggers fires. The first trigger, identified as `auc_floor`, fires
-when the monitored production ROC-AUC falls below 0.74. The second trigger, identified as
-`drift_psi`, fires when the population stability index of the incoming score distribution rises above
-0.25. The third trigger, identified as `approval_rate_floor`, fires when the weekly approval rate
-falls below 0.35. Any single trigger is sufficient to initiate rollback.
+champion if any of the following triggers fires. Each trigger is identified by an `id` and the
+snake_case `metric` identifier it monitors. The first trigger, identified as `auc_floor` and
+monitoring the metric `roc_auc`, fires when the monitored production ROC-AUC falls below 0.74. The
+second trigger, identified as `drift_psi` and monitoring the metric `population_stability_index`,
+fires when the population stability index of the incoming score distribution rises above 0.25. The
+third trigger, identified as `approval_rate_floor` and monitoring the metric `weekly_approval_rate`,
+fires when the weekly approval rate falls below 0.35. Any single trigger is sufficient to initiate
+rollback.
 
 ## §14 Regulatory and Supervisory Background
 

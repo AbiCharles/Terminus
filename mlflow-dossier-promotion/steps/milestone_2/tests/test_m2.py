@@ -63,24 +63,31 @@ class TestMilestone2:
         )
 
     def test_required_params_logged(self, runs_by_model):
-        """Each candidate run must log its estimator and random_state (=42) as params."""
-        prefixes = ("hp_", "param_", "params_", "est__", "estimator__", "model__", "clf__", "classifier__")
-
-        def base(key):
-            for pre in prefixes:
-                if key.startswith(pre):
-                    return key[len(pre):]
-            return key
-
+        """Each run must log model_type, estimator, random_state and every estimator
+        hyperparameter as a flat, exact-named MLflow param (the instruction forbids
+        prefixing or nesting), so prefixed names like clf__C or hp_random_state fail."""
+        banned_prefixes = ("hp_", "param_", "params_", "est__", "estimator__", "model__", "clf__", "classifier__")
         for name in EXPECTED_CANDIDATES:
             params = runs_by_model[name].data.params
-            bases = {base(k): v for k, v in params.items()}
-            assert "estimator" in bases or any("estimator" in k.lower() for k in params), (
-                f"{name} did not log an 'estimator' param"
+            # model_type must be an MLflow param (not merely a tag or the run name).
+            assert params.get("model_type") == name, (
+                f"{name} must log model_type={name} as an MLflow param (found params: {sorted(params)})"
             )
-            assert bases.get("random_state") == "42", (
-                f"{name} must log random_state=42 as a param (found params: {sorted(params)})"
-            )
+            assert "estimator" in params, f"{name} did not log an 'estimator' param"
+            assert params.get("random_state") == "42", f"{name} must log random_state=42 as a param"
+            if name == "logreg_baseline":
+                assert params.get("C") == "1.0", f"{name} must log C=1.0 as a param"
+                assert params.get("max_iter") == "1000", f"{name} must log max_iter=1000 as a param"
+            else:
+                assert params.get("n_estimators") == "200", f"{name} must log n_estimators=200 as a param"
+                assert params.get("max_depth") == "3", f"{name} must log max_depth=3 as a param"
+                assert params.get("learning_rate") == "0.1", f"{name} must log learning_rate=0.1 as a param"
+            # No prefixed/nested hyperparameter names (e.g. sklearn Pipeline get_params()).
+            for key in params:
+                assert not any(key.startswith(p) for p in banned_prefixes), (
+                    f"{name} param '{key}' is prefixed; the instruction requires exact "
+                    f"scikit-learn names without prefixing or nesting"
+                )
 
     def test_required_metrics_logged(self, runs_by_model):
         """Each candidate run must log accuracy, f1_macro, roc_auc and a dpd metric per protected slice."""

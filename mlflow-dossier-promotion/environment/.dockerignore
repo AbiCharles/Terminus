@@ -1,9 +1,18 @@
 # Build context hygiene — only Dockerfile, dossier.md and data.csv are needed.
+.git
+.gitignore
+.env
 **/__pycache__/
-*.pyc
-*.pyo
-*.log
-.DS_Store
+**/*.pyc
+**/*.pyo
+**/.pytest_cache/
+**/.mypy_cache/
+**/.ruff_cache/
+**/node_modules/
 .ipynb_checkpoints/
+.DS_Store
+*.log
 *.db
 mlruns/
+solution/
+tests/

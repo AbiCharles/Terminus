@@ -55,7 +55,7 @@ timeout_sec = 450.0
 name = "milestone_2"
 
 [steps.agent]
-timeout_sec = 2400.0
+timeout_sec = 1800.0
 
 [steps.verifier]
 timeout_sec = 900.0

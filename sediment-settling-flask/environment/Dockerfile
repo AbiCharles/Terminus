@@ -23,10 +23,12 @@ RUN python -m pip download --no-cache-dir -d /opt/wheels \
 
 WORKDIR /app
 
-# Task inputs: the experiment metadata database (agent-visible) and the Flask API
+# Task inputs: the experiment metadata database (agent-visible), the analysis
+# standard the method configuration must be extracted from, and the Flask API
 # source + its private observation store. The oracle solution and verifier tests
 # are intentionally NOT copied into the image.
 COPY spec.md /app/spec.md
+COPY settling_standard.md /app/settling_standard.md
 COPY experiments.db /app/experiments.db
 COPY start_api.sh /app/start_api.sh
 COPY api/ /app/api/

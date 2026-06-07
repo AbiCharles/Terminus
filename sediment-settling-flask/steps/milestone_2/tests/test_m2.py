@@ -23,9 +23,9 @@ def observations():
 class TestMilestone2:
     """Milestone 2: observations fetched from the API and converted."""
 
-    def test_metadata_persists(self):
-        """The milestone 1 metadata.json must still exist (state persists)."""
-        assert (pathlib.Path(ref.OUT_DIR) / "metadata.json").exists()
+    def test_config_persists(self):
+        """The milestone 1 config.json must still exist (state persists)."""
+        assert (pathlib.Path(ref.OUT_DIR) / "config.json").exists()
 
     def test_columns_and_count(self, observations):
         """observations.csv must have time_s,height_cm and one row per observation (all pages)."""

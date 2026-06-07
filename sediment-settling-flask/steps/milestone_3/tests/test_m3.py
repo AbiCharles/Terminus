@@ -55,7 +55,7 @@ class TestMilestone3:
 
     def test_prior_artifacts_persist(self):
         """Milestone 1/2 outputs must still exist (state persists)."""
-        assert (pathlib.Path(ref.OUT_DIR) / "metadata.json").exists()
+        assert (pathlib.Path(ref.OUT_DIR) / "config.json").exists()
         assert (pathlib.Path(ref.OUT_DIR) / "observations.csv").exists()
 
     def test_report_schema(self, report):

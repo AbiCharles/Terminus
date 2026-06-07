@@ -8,7 +8,7 @@ author_email = "warriorp8@gmail.com"
 difficulty = "hard"
 category = "scientific-computing"
 # Options for subcategories are: "long_context", "tool_specific", "api_integration", "db_interaction", "ui_building"
-subcategories = ["api_integration", "db_interaction"]
+subcategories = ["long_context", "api_integration", "db_interaction"]
 # Total milestone count — must match the number of [[steps]] blocks below
 number_of_milestones = 3
 # Size of the codebase: minimal -> 0-20 files, small -> 20+ files, large -> 200+ files
@@ -21,14 +21,16 @@ tags = ["flask", "sqlite", "scipy", "curve-fitting", "sediment-settling"]
 expert_time_estimate_min = 90
 junior_time_estimate_min = 180
 
-# The agent builds a Python CLI that analyzes settling-column experiment 7. It reads
-# experiment metadata + sensor calibration from the SQLite database /app/experiments.db
-# and writes /app/output/metadata.json (milestone 1), fetches paginated raw observations
-# from the local Flask API at http://127.0.0.1:8000 (source in /app/api) and converts them
-# to /app/output/observations.csv (milestone 2), then fits the Stokes-law-inspired settling
-# model and writes /app/output/report.json and /app/output/report.csv with parameter
-# estimates, confidence intervals, derived quantities, and residual metrics (milestone 3).
-# The contract is /app/spec.md.
+# The agent builds a Python CLI that analyzes settling-column experiment 7. It extracts the
+# governing analysis-method configuration from the long standards document
+# /app/settling_standard.md (which also carries superseded, illustrative and historical
+# distractor values) and combines it with the per-experiment fields + sensor calibration from
+# the SQLite database /app/experiments.db into /app/output/config.json (milestone 1), fetches
+# paginated raw observations from the local Flask API at http://127.0.0.1:8000 (source in
+# /app/api) and converts them to /app/output/observations.csv (milestone 2), then fits the
+# configured Stokes-law-inspired settling model and writes /app/output/report.json and
+# /app/output/report.csv with parameter estimates, confidence intervals, derived quantities,
+# and residual metrics (milestone 3). The contract is /app/spec.md.
 
 # Sandbox environment limits — applied across all milestones (the same container is shared)
 [environment]
@@ -39,7 +41,7 @@ memory_mb = 8192
 storage_mb = 12288
 workdir = "/app"
 
-# Milestone 1 — Query Experiment Metadata: write /app/output/metadata.json from SQLite
+# Milestone 1 — Extract Analysis Configuration: write /app/output/config.json from the standard + SQLite
 [[steps]]
 name = "milestone_1"
 

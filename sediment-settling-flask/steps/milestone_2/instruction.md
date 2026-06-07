@@ -1,1 +1,1 @@
-Milestone 2: produce `/app/output/observations.csv` for experiment 7. The timing and level data are served by two separate paginated API endpoints — join them and convert to physical units (`time_s`, `height_cm`) as the spec describes.
+Milestone 2: produce `/app/output/observations.csv` for experiment 7. The timing and level data are served by two separate paginated API endpoints — join them and convert to physical units (`time_s`, `height_cm`) as the spec describes, using the calibration constants and the time conversion from the configuration you extracted in milestone 1.

@@ -16,3 +16,6 @@ jobs_*.log
 
 # Built submission archive
 *.zip
+
+# networkx de-risk scratch (large vendored tree, not tracked)
+dev-codebase/

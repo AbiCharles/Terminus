@@ -1,1 +1,1 @@
-Milestone 3: fit the settling model to experiment 7's observations and write `/app/output/report.json` and `/app/output/report.csv` with the parameter estimates, 95% confidence intervals, derived quantities, and residual metrics defined in the spec.
+Milestone 3: fit the two-phase settling model from the spec to experiment 7's observations and write `/app/output/report.json` and `/app/output/report.csv` with the breakpoint, parameter estimates, 95% confidence intervals, derived diameter, and residual metrics.

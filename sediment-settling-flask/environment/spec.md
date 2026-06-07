@@ -91,6 +91,18 @@ Report:
 The `experiment` block is the per-experiment row + sensor calibration from `/app/experiments.db`; the
 `method` block is the governing configuration extracted from `/app/settling_standard.md`.
 
+The two categorical `method` fields must be written using these exact canonical string tokens (extract
+**which** value the standard mandates; emit it as the token shown here):
+
+- `settling_model` — one of `"two_phase"`, `"single_exponential"`, or `"power_law"` (e.g. the standard's
+  "two-phase" model is the token `"two_phase"`; the superseded "single-exponential" model is
+  `"single_exponential"`).
+- `diameter_output_unit` — the token `"micrometre"` when the standard reports the effective diameter in
+  micrometres.
+
+All other `method` fields are numeric (`breakpoint_min_side` and `curve_fit_maxfev` and
+`time_ms_to_s_divisor` are integers; the rest are floats).
+
 **`observations.csv`** — header `time_s,height_cm`, one row per observation (joined + converted),
 sorted by ascending `time_s`.
 

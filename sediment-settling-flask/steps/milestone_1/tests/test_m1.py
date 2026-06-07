@@ -14,6 +14,21 @@ import _reference as ref
 
 CONFIG_PATH = pathlib.Path(ref.OUT_DIR) / "config.json"
 
+_UNIT_ALIASES = {"micrometre", "micrometres", "micron", "microns", "um", "µm", "micrometer", "micrometers"}
+
+
+def _norm_categorical(field, value):
+    """Normalise a categorical method token so representation variants compare equal.
+
+    Hyphen/underscore/space and case are folded for the model name; the family of
+    micrometre spellings collapses to "micrometre". This forgives representation only —
+    distinct values (e.g. single_exponential vs two_phase) stay distinct.
+    """
+    token = str(value).strip().lower()
+    if field == "diameter_output_unit":
+        return "micrometre" if token in _UNIT_ALIASES else token
+    return " ".join(token.replace("-", " ").replace("_", " ").split())
+
 
 @pytest.fixture(scope="module")
 def config():
@@ -50,7 +65,9 @@ class TestMilestone1:
         for key, want in ref.CORRECT_METHOD.items():
             assert key in method, f"missing method field {key}"
             if isinstance(want, str):
-                assert method[key] == want, f"{key}: {method[key]} != {want}"
+                assert _norm_categorical(key, method[key]) == _norm_categorical(key, want), (
+                    f"{key}: {method[key]} != {want}"
+                )
             else:
                 assert abs(float(method[key]) - float(want)) < 1e-9, (
                     f"{key}: {method[key]} != {want}"
@@ -61,7 +78,9 @@ class TestMilestone1:
         method = config["method"]
         for key, bad in ref.DISTRACTOR_METHOD.items():
             if isinstance(bad, str):
-                assert method[key] != bad, f"{key} used superseded value {bad}"
+                assert _norm_categorical(key, method[key]) != _norm_categorical(key, bad), (
+                    f"{key} used superseded value {bad}"
+                )
             else:
                 assert abs(float(method[key]) - float(bad)) > 1e-9, (
                     f"{key} used non-governing value {bad}"

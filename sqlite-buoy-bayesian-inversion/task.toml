@@ -1,0 +1,73 @@
+# Task configuration schema version
+version = "2.0"
+
+# Task metadata (author, difficulty, categorization)
+[metadata]
+author_name = "Abigail Charles"
+author_email = "warriorp8@gmail.com"
+difficulty = "hard"
+category = "machine-learning"
+# Options for subcategories are: "long_context", "tool_specific", "api_integration", "db_interaction", "ui_building"
+subcategories = ["long_context", "db_interaction"]
+# Total milestone count — must match the number of [[steps]] blocks below
+number_of_milestones = 3
+# Size of the codebase: minimal -> 0-20 files, small -> 20+ files, large -> 200+ files
+codebase_size = "minimal"
+# Coding languages used in the oracle solution or required by the agent
+languages = ["python"]
+# For tool_specific, api_integration, and db_interaction subcategories, please include specific tool, api framework, or database software
+tags = ["sqlite", "bayesian-inference", "calibration", "long-context", "time-series", "numpy"]
+# Estimated time to complete (minutes)
+expert_time_estimate_min = 120
+junior_time_estimate_min = 240
+
+# The agent builds a Python CLI at /app/buoy_calibrate.py that calibrates ocean
+# buoy sensor drift. Milestone 1 (parse) reads the ~50k-token mission notebook at
+# /app/mission_notebook.md and writes the binding calibration protocol to
+# /app/protocol.json (per-sensor-type unit conversions, noise, Bayesian priors,
+# plus exclusion intervals, mission epoch and inclusion rules). Milestone 2
+# (query) reads observations from the SQLite store at /app/observations.db, keeps
+# only active buoys of included sensor types, drops exclusion windows, applies the
+# unit conversion, and writes a cleaned residual series per buoy under
+# /app/artifacts. Milestone 3 (invert) computes the conjugate Gaussian posterior
+# for each buoy's offset and drift and writes posterior summaries plus a fleet
+# calibration summary.
+
+# Sandbox environment limits — applied across all milestones (the same container is shared)
+[environment]
+allow_internet = false
+build_timeout_sec = 1200.0
+cpus = 4
+memory_mb = 8192
+storage_mb = 12288
+workdir = "/app"
+
+# Milestone 1 — Extract Calibration Protocol: parse the notebook into /app/protocol.json
+[[steps]]
+name = "milestone_1"
+
+[steps.agent]
+timeout_sec = 1800.0
+
+[steps.verifier]
+timeout_sec = 450.0
+
+# Milestone 2 — Query Buoy Observations: write cleaned residual series per buoy
+[[steps]]
+name = "milestone_2"
+
+[steps.agent]
+timeout_sec = 1800.0
+
+[steps.verifier]
+timeout_sec = 600.0
+
+# Milestone 3 — Run Bayesian Inversion: conjugate posterior for offset and drift
+[[steps]]
+name = "milestone_3"
+
+[steps.agent]
+timeout_sec = 1800.0
+
+[steps.verifier]
+timeout_sec = 600.0

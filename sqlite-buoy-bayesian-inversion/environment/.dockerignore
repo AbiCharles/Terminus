@@ -1,0 +1,17 @@
+# Build context hygiene — only the Dockerfile, mission notebook, generator, and
+# lockfile are needed in the build context.
+.git
+.gitignore
+.env
+**/__pycache__/
+**/*.pyc
+**/*.pyo
+**/.pytest_cache/
+**/.mypy_cache/
+**/.ruff_cache/
+**/node_modules/
+.DS_Store
+*.log
+*.db
+solution/
+tests/

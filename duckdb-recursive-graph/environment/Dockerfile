@@ -34,17 +34,15 @@ RUN apt-get update \
     && apt-get autoremove -y \
     && rm -rf /var/lib/apt/lists/*
 
-# Verifier-ONLY dependencies (pinned). The pytest verifier recomputes ground truth
-# independently using the DuckDB Python API + pandas/numpy; these are not needed to
-# solve the task and are not the task's language (the agent works in SQL).
-RUN python -m pip install --no-cache-dir \
+# Verifier-ONLY dependencies (pinned), staged as wheels and NOT installed into the
+# image: the agent solves the task in SQL via the duckdb CLI and needs none of these.
+# The pytest verifier recomputes ground truth independently using the DuckDB Python
+# API + pandas/numpy; tests/test.sh installs all of these offline from this wheel
+# directory at verification time.
+RUN python -m pip download --no-cache-dir -d /opt/wheels \
     duckdb==1.5.3 \
     pandas==2.3.3 \
-    numpy==2.4.6
-
-# Verifier-ONLY test dependencies are staged as wheels, not installed; tests/test.sh
-# installs them offline from this wheel directory at verification time.
-RUN python -m pip download --no-cache-dir -d /opt/wheels \
+    numpy==2.4.6 \
     pytest==8.4.1 \
     pytest-json-ctrf==0.3.5
 

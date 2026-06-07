@@ -122,12 +122,15 @@ class TestMilestone1:
         assert candidates["gbm_compliant"]["uses_prohibited_proxy"] is False
 
     def test_rollback_conditions(self, policy):
-        """Rollback triggers must match §13: auc_floor<0.74, drift_psi>0.25, approval_rate_floor<0.35."""
+        """Rollback triggers must match §13: ids, monitored metric, operator and threshold."""
         conditions = {c["id"]: c for c in policy["rollback_conditions"]}
         assert set(conditions) == {"auc_floor", "drift_psi", "approval_rate_floor"}
+        assert conditions["auc_floor"]["metric"] == "roc_auc"
         assert conditions["auc_floor"]["operator"] == "<"
         assert math.isclose(conditions["auc_floor"]["threshold"], 0.74, abs_tol=1e-9)
+        assert conditions["drift_psi"]["metric"] == "population_stability_index"
         assert conditions["drift_psi"]["operator"] == ">"
         assert math.isclose(conditions["drift_psi"]["threshold"], 0.25, abs_tol=1e-9)
+        assert conditions["approval_rate_floor"]["metric"] == "weekly_approval_rate"
         assert conditions["approval_rate_floor"]["operator"] == "<"
         assert math.isclose(conditions["approval_rate_floor"]["threshold"], 0.35, abs_tol=1e-9)

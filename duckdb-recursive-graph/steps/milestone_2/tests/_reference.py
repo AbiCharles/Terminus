@@ -2,9 +2,9 @@
 
 Recomputes, from the raw `nodes` and `edges` tables alone, the transitive
 reachability closure, the strongly connected components (min-id labelled), and the
-shortest cycle length through each node on a cycle — using plain Python (BFS +
-Kosaraju), a different method than the agent's recursive SQL. It is the verifier's
-answer key; the agent has no access to it.
+longest directed chain of components in the SCC condensation DAG — using plain Python
+(BFS + Kosaraju + topological DP), a different method than the agent's recursive SQL.
+It is the verifier's answer key; the agent has no access to it.
 """
 
 from collections import defaultdict, deque
@@ -110,3 +110,40 @@ def shortest_cycles(edges, node_ids):
         if found is not None:
             out[start] = found
     return out
+
+
+def condensation_longest_chains(edges, node_ids):
+    """Longest directed chain of SCCs ending at each component, over the condensation DAG.
+
+    Contract each strongly connected component to a single node (labelled by its
+    min node id). The condensation has a directed edge A -> B iff some graph edge runs
+    from a node in component A to a node in a different component B; it is acyclic. For
+    every component C, returns the number of components on the longest directed path in
+    the condensation that ends at C (a component with no incoming condensation edge has
+    chain length 1). Computed by topological dynamic programming, independently of the
+    agent's recursive SQL.
+    """
+    comp = strongly_connected_components(edges, node_ids)
+    comps = set(comp.values())
+    preds = {c: set() for c in comps}
+    succs = {c: set() for c in comps}
+    for s, d in edges:
+        ca, cb = comp[s], comp[d]
+        if ca != cb:
+            preds[cb].add(ca)
+            succs[ca].add(cb)
+    # Kahn topological order over the condensation DAG.
+    indeg = {c: len(preds[c]) for c in comps}
+    queue = deque(sorted(c for c in comps if indeg[c] == 0))
+    longest = {c: 1 for c in comps}
+    order = []
+    while queue:
+        c = queue.popleft()
+        order.append(c)
+        for nb in sorted(succs[c]):
+            if longest[c] + 1 > longest[nb]:
+                longest[nb] = longest[c] + 1
+            indeg[nb] -= 1
+            if indeg[nb] == 0:
+                queue.append(nb)
+    return longest

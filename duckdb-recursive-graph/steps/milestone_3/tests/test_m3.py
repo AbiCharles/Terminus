@@ -1,8 +1,10 @@
-"""Tests for milestone 3 (Shortest Cycle Through Each Node).
+"""Tests for milestone 3 (Longest Chain in the SCC Condensation).
 Run alone with: pytest tests/test_m3.py
 
-Verifies the agent's `shortest_cycles` table gives, for every node on a cycle, the
-minimum cycle length through it, recomputed independently with Python BFS (/app/spec.md §4).
+Verifies the agent's `component_chains` table gives, for every strongly connected
+component, the length of the longest directed chain of components ending at it in the
+condensation DAG, recomputed independently in Python (Kosaraju + topological DP),
+per /app/spec.md §4.
 """
 
 import duckdb
@@ -19,17 +21,17 @@ def raw():
 
 
 @pytest.fixture(scope="module")
-def agent_cycles():
+def agent_chains():
     con = duckdb.connect(DB_PATH, read_only=True)
     try:
-        rows = con.execute("SELECT node_id, shortest_cycle_len FROM shortest_cycles").fetchall()
+        rows = con.execute("SELECT component_id, longest_chain FROM component_chains").fetchall()
     finally:
         con.close()
     return rows
 
 
 class TestMilestone3:
-    """Milestone 3: shortest directed cycle length per node on a cycle."""
+    """Milestone 3: longest condensation chain per strongly connected component."""
 
     def test_prior_artifacts_persist(self):
         """Milestone 1/2 tables must still exist (state persists)."""
@@ -40,19 +42,34 @@ class TestMilestone3:
             con.close()
         assert {"reachability", "components"} <= tables, "earlier milestone tables missing"
 
-    def test_cycles_match_reference(self, agent_cycles, raw):
-        """Exactly the nodes on cycles must appear, each with the correct shortest cycle length."""
+    def test_one_row_per_component(self, agent_chains, raw):
+        """There must be exactly one row per distinct component_id (= number of SCCs)."""
         nodes, edges = raw
-        expected = _reference.shortest_cycles(edges, nodes)
-        actual = dict(agent_cycles)
-        assert len(agent_cycles) == len(actual), "shortest_cycles has duplicate node_id rows"
-        assert set(actual) == set(expected), (
-            "the set of nodes on cycles does not match the reference "
-            "(non-cycle nodes must be excluded; cycle nodes must all appear)"
+        expected = _reference.condensation_longest_chains(edges, nodes)
+        ids = [cid for cid, _ in agent_chains]
+        assert len(ids) == len(set(ids)), "component_chains has duplicate component_id rows"
+        assert set(ids) == set(expected), (
+            "the set of component_ids does not match the strongly connected components "
+            "(every component must appear exactly once)"
         )
-        wrong = {k: (actual[k], expected[k]) for k in expected if actual[k] != expected[k]}
-        assert not wrong, f"{len(wrong)} nodes have a wrong shortest_cycle_len (e.g. {dict(list(wrong.items())[:3])})"
 
-    def test_lengths_are_positive(self, agent_cycles):
-        """Every shortest cycle length must be a positive integer."""
-        assert all(length >= 1 for _, length in agent_cycles), "shortest_cycle_len must be >= 1"
+    def test_chains_match_reference(self, agent_chains, raw):
+        """Every component's longest_chain must match the independent topological recompute."""
+        nodes, edges = raw
+        expected = _reference.condensation_longest_chains(edges, nodes)
+        actual = dict(agent_chains)
+        wrong = {k: (actual.get(k), expected[k]) for k in expected if actual.get(k) != expected[k]}
+        assert not wrong, (
+            f"{len(wrong)} components have a wrong longest_chain "
+            f"(e.g. {dict(list(wrong.items())[:3])})"
+        )
+
+    def test_nontrivial_chain_exists(self, agent_chains):
+        """The condensation must chain multiple components (some longest_chain >= 2)."""
+        assert any(length >= 2 for _, length in agent_chains), (
+            "no longest_chain >= 2 found — the condensation should chain multiple components"
+        )
+
+    def test_lengths_are_positive(self, agent_chains):
+        """Every longest_chain must be a positive integer (>= 1)."""
+        assert all(length >= 1 for _, length in agent_chains), "longest_chain must be >= 1"

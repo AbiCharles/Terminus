@@ -19,7 +19,7 @@ codebase_size = "minimal"
 # the guideline to list the main language and not add Python for glue/verifier.
 languages = ["sql"]
 # For tool_specific, api_integration, and db_interaction subcategories, please include specific tool, api framework, or database software
-tags = ["duckdb", "recursive-cte", "graph", "sql", "strongly-connected-components"]
+tags = ["duckdb", "recursive-cte", "graph", "sql", "strongly-connected-components", "dag-longest-path"]
 # Estimated time to complete (minutes)
 expert_time_estimate_min = 150
 junior_time_estimate_min = 300
@@ -29,9 +29,10 @@ junior_time_estimate_min = 300
 # /app/spec.md. Milestone 1 builds the transitive-reachability table `reachability`
 # with a recursive CTE that terminates on cycles. Milestone 2 builds the
 # `components` table labelling each node with the minimum node id of its strongly
-# connected component. Milestone 3 builds the `shortest_cycles` table giving the
-# shortest directed cycle length through each node that lies on a cycle. All
-# outputs are written back into /app/graph.duckdb.
+# connected component. Milestone 3 builds the `component_chains` table giving, for
+# each strongly connected component, the longest directed chain of components ending
+# at it in the (acyclic) SCC condensation — a DAG-longest-path computed in recursive
+# SQL. All outputs are written back into /app/graph.duckdb.
 
 # Sandbox environment limits — applied across all milestones (the same container is shared)
 [environment]

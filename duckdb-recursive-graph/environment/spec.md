@@ -49,16 +49,25 @@ nodes in its component. One row per node.
 (A node not on any cycle forms a singleton component, so its `component_id` is its
 own `node_id`.)
 
-## 4. Milestone 3 — table `shortest_cycles`
+## 4. Milestone 3 — table `component_chains`
 
-For every node that lies on at least one directed cycle, the length of the
-**shortest directed cycle through it** — the minimum number of edges on a directed
-path that starts and ends at that node. Nodes that are not on any cycle do **not**
-appear in this table.
+The **longest directed chain of components in the condensation DAG**. Contract every
+strongly connected component (from milestone 2) to a single node identified by its
+`component_id`. The *condensation* is the directed graph on these component nodes with
+an edge `A -> B` iff some edge in `edges` runs from a node in component `A` to a node in
+a **different** component `B`. Because each strongly connected component has been
+contracted, the condensation is **acyclic** (a DAG).
+
+For every component, `longest_chain` is the number of components on the **longest
+directed path in the condensation that ends at that component** — i.e. counting the
+component itself plus the most components that can be chained before it along
+condensation edges. A component with no incoming condensation edge has
+`longest_chain = 1`. Every component appears exactly once (one row per distinct
+`component_id`, so the row count equals the number of strongly connected components).
 
 | column | type |
 |---|---|
-| `node_id` | BIGINT |
-| `shortest_cycle_len` | BIGINT (min edges on a cycle through the node, >= 1) |
+| `component_id` | BIGINT (min node id of a strongly connected component, as in `components`) |
+| `longest_chain` | BIGINT (components on the longest condensation path ending here, >= 1) |
 
 All three result tables are written back into `/app/graph.duckdb`.

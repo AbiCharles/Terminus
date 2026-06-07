@@ -1,0 +1,71 @@
+# Task configuration schema version
+version = "2.0"
+
+# Task metadata (author, difficulty, categorization)
+[metadata]
+author_name = "Abigail Charles"
+author_email = "warriorp8@gmail.com"
+difficulty = "hard"
+category = "machine-learning"
+# Options for subcategories are: "long_context", "tool_specific", "api_integration", "db_interaction", "ui_building"
+subcategories = ["tool_specific", "db_interaction"]
+# Total milestone count — must match the number of [[steps]] blocks below
+number_of_milestones = 3
+# Size of the codebase: minimal -> 0-20 files, small -> 20+ files, large -> 200+ files
+codebase_size = "minimal"
+# Coding languages used in the oracle solution or required by the agent
+languages = ["python"]
+# For tool_specific, api_integration, and db_interaction subcategories, please include specific tool, api framework, or database software
+tags = ["duckdb", "mlflow", "scipy", "signal-processing", "fft", "monte-carlo"]
+# Estimated time to complete (minutes)
+expert_time_estimate_min = 120
+junior_time_estimate_min = 240
+
+# The agent builds a Python CLI at /app/signal_analysis.py that reads experimental
+# sensor signals exclusively from the DuckDB database at /app/measurements.duckdb.
+# Milestone 1 (query) writes each valid experiment's samples to
+# /app/artifacts/<id>/measurements.csv and metadata.json. Milestone 2 (analyze)
+# computes statistics on the linearly detrended signal — basic stats, the three
+# FFT-dominant frequencies, and a seeded bootstrap RMS confidence interval — into
+# /app/artifacts/<id>/analysis.json. Milestone 3 (track) logs one MLflow run per
+# valid experiment to the sqlite store at /app/mlflow.db (artifacts under
+# /app/mlruns) with the analysis params, metrics, tags, and artifacts.
+
+# Sandbox environment limits — applied across all milestones (the same container is shared)
+[environment]
+allow_internet = false
+build_timeout_sec = 1200.0
+cpus = 4
+memory_mb = 8192
+storage_mb = 12288
+workdir = "/app"
+
+# Milestone 1 — Query Experiment Database: write each valid experiment's samples to CSV + metadata
+[[steps]]
+name = "milestone_1"
+
+[steps.agent]
+timeout_sec = 1800.0
+
+[steps.verifier]
+timeout_sec = 450.0
+
+# Milestone 2 — Compute Signal Statistics: detrended stats, FFT dominant frequencies, bootstrap CI
+[[steps]]
+name = "milestone_2"
+
+[steps.agent]
+timeout_sec = 1800.0
+
+[steps.verifier]
+timeout_sec = 600.0
+
+# Milestone 3 — Track MLflow Analysis Runs: log one run per valid experiment
+[[steps]]
+name = "milestone_3"
+
+[steps.agent]
+timeout_sec = 1800.0
+
+[steps.verifier]
+timeout_sec = 600.0

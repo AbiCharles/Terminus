@@ -13,8 +13,11 @@ subcategories = ["db_interaction", "tool_specific"]
 number_of_milestones = 3
 # Size of the codebase: minimal -> 0-20 files, small -> 20+ files, large -> 200+ files
 codebase_size = "minimal"
-# Coding languages used in the oracle solution or required by the agent
-languages = ["sql", "python"]
+# Primary language the agent works in. The deliverable is DuckDB SQL (recursive
+# CTEs for reachability, SCCs, and shortest cycles); the only Python is a thin
+# driver that executes that SQL, and the pytest verifier — neither is listed, per
+# the guideline to list the main language and not add Python for glue/verifier.
+languages = ["sql"]
 # For tool_specific, api_integration, and db_interaction subcategories, please include specific tool, api framework, or database software
 tags = ["duckdb", "recursive-cte", "graph", "sql", "strongly-connected-components"]
 # Estimated time to complete (minutes)

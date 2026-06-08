@@ -24,10 +24,9 @@ RUN apt-get update \
         asciinema \
     && rm -rf /var/lib/apt/lists/*
 
-# Verifier-ONLY test dependencies (pytest stack) are staged as wheels rather than
-# installed, so the agent environment does not carry test tooling. Each milestone's
-# tests/test.sh installs them offline from this wheel directory at verification time.
-RUN python -m pip download --no-cache-dir -d /opt/wheels \
+# Verifier test dependencies (pytest stack) are preinstalled into the image at
+# build time so verification needs no network and no install step.
+RUN python -m pip install --no-cache-dir \
     pytest==8.4.1 \
     pytest-json-ctrf==0.3.5
 

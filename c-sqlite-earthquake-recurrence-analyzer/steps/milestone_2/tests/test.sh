@@ -10,9 +10,7 @@ if [ "$PWD" = "/" ]; then
   exit 0
 fi
 
-# Verifier-only test dependencies are staged as wheels in the image; install
 # them offline (no network) from that wheel directory at test time.
-pip install --no-index --find-links /opt/wheels pytest==8.4.1 pytest-json-ctrf==0.3.5
 
 python -m pytest \
     -o cache_dir=/tmp/pytest_cache \

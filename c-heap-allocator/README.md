@@ -16,6 +16,8 @@ three milestones; each builds on the previous one in the same file.
   merge so large requests can be satisfied again, `xrealloc` grows/shrinks/relocates
   while preserving contents, and `heap_stats` reports exact live accounting.
 
-Your allocator is compiled together with a hidden test harness under
-AddressSanitizer and UndefinedBehaviorSanitizer, so it must be free of memory
-errors and undefined behavior in addition to being functionally correct.
+Your allocator is compiled together with a hidden, independent test harness under
+UndefinedBehaviorSanitizer, so it must be free of undefined behavior in addition
+to being functionally correct. The harness keeps its own record of every live
+allocation and verifies alignment, non-overlap, and data integrity without
+trusting the allocator's bookkeeping.

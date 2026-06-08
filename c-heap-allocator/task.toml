@@ -16,7 +16,7 @@ codebase_size = "minimal"
 # Coding languages used in the oracle solution or required by the agent
 languages = ["c"]
 # For tool_specific, api_integration, and db_interaction subcategories, please include specific tool, api framework, or database software
-tags = ["c", "memory-allocator", "systems-programming", "addresssanitizer", "undefinedbehaviorsanitizer", "gcc"]
+tags = ["c", "memory-allocator", "systems-programming", "undefinedbehaviorsanitizer", "gcc"]
 # Estimated time to complete (minutes)
 expert_time_estimate_min = 150
 junior_time_estimate_min = 360
@@ -29,7 +29,7 @@ junior_time_estimate_min = 360
 # adjacent free blocks, full xrealloc semantics (grow/shrink/relocate, NULL/0
 # edge cases) and exact heap_stats accounting. The verifier compiles the
 # candidate's allocator together with an independent C harness under
-# AddressSanitizer + UndefinedBehaviorSanitizer and runs trace-driven scenarios
+# UndefinedBehaviorSanitizer and runs trace-driven scenarios
 # that check alignment, non-overlap, data integrity, reuse, coalescing and stats.
 
 # Sandbox environment limits — applied across all milestones (the same container is shared)

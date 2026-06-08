@@ -1,6 +1,6 @@
 We need a general-purpose memory allocator written from scratch in C. You'll build it over three milestones in `/app/allocator.c`, implementing the contract declared in `/app/allocator.h`. A non-functional stub is already in `/app/allocator.c` for you to replace; do not change `/app/allocator.h`.
 
-Your allocator manages a single fixed region of exactly `ALLOC_CAPACITY` bytes that it obtains once and never grows — it must never ask the operating system for more memory after that. It will be compiled together with a separate test program (which you do not have) using `gcc` under AddressSanitizer and UndefinedBehaviorSanitizer, so it must be completely free of memory errors and undefined behavior as well as functionally correct.
+Your allocator manages a single fixed region of exactly `ALLOC_CAPACITY` bytes that it obtains once and never grows — it must never ask the operating system for more memory after that. It will be compiled together with a separate test program (which you do not have) using `gcc` under UndefinedBehaviorSanitizer, so it must be free of undefined behavior (no misaligned accesses, no invalid pointer arithmetic, no overflow) as well as functionally correct.
 
 Milestone 1: implement `xmalloc` and `xfree`.
 

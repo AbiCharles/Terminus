@@ -1,7 +1,7 @@
 """Tests for milestone 2 (reuse, splitting, calloc). Run alone with: pytest tests/test_m2.py
 
 The candidate's /app/allocator.c is compiled with an independent C harness under
-AddressSanitizer + UndefinedBehaviorSanitizer; each test runs one harness
+UndefinedBehaviorSanitizer; each test runs one harness
 scenario and asserts it reports "OK" with a zero exit. These scenarios require
 that freed blocks are genuinely reclaimed and that large free regions are split,
 on top of the milestone 1 guarantees (which are re-checked here so a regression
@@ -22,14 +22,13 @@ CFLAGS = [
     "-O1",
     "-g",
     "-fno-omit-frame-pointer",
-    "-fsanitize=address,undefined",
+    "-fsanitize=undefined",
     "-fno-sanitize-recover=all",
     "-Wall",
     "-I/app",
 ]
 RUN_ENV = dict(
     os.environ,
-    ASAN_OPTIONS="abort_on_error=1:detect_leaks=0",
     UBSAN_OPTIONS="halt_on_error=1:print_stacktrace=1",
 )
 

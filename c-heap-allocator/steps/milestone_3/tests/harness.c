@@ -2,7 +2,7 @@
  * Independent verification harness for the fixed-arena allocator.
  *
  * It is compiled together with the candidate's allocator.c under
- * AddressSanitizer + UndefinedBehaviorSanitizer and run once per scenario
+ * UndefinedBehaviorSanitizer and run once per scenario
  * (argv[1]). Each scenario exercises the allocator and checks the invariants
  * itself — it never trusts the allocator's own bookkeeping. On success it
  * prints "OK" and exits 0; on any violation it prints "FAIL: <reason>" and

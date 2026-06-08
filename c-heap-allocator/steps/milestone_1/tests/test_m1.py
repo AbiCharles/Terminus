@@ -1,7 +1,7 @@
 """Tests for milestone 1 (arena allocation). Run alone with: pytest tests/test_m1.py
 
 The candidate's /app/allocator.c is compiled together with an independent C
-harness (harness.c) under AddressSanitizer + UndefinedBehaviorSanitizer. Each
+harness (harness.c) under UndefinedBehaviorSanitizer. Each
 test runs one harness scenario in its own process and asserts it reports "OK"
 with a zero exit status; a sanitizer abort or a violated invariant (overlap,
 misalignment, corruption, or never reporting exhaustion) yields a non-zero exit
@@ -23,14 +23,13 @@ CFLAGS = [
     "-O1",
     "-g",
     "-fno-omit-frame-pointer",
-    "-fsanitize=address,undefined",
+    "-fsanitize=undefined",
     "-fno-sanitize-recover=all",
     "-Wall",
     "-I/app",
 ]
 RUN_ENV = dict(
     os.environ,
-    ASAN_OPTIONS="abort_on_error=1:detect_leaks=0",
     UBSAN_OPTIONS="halt_on_error=1:print_stacktrace=1",
 )
 

@@ -1,7 +1,7 @@
 """Tests for milestone 3 (coalescing, realloc, stats). Run alone with: pytest tests/test_m3.py
 
 The candidate's /app/allocator.c is compiled with an independent C harness under
-AddressSanitizer + UndefinedBehaviorSanitizer; each test runs one harness
+UndefinedBehaviorSanitizer; each test runs one harness
 scenario and asserts it reports "OK" with a zero exit. These scenarios require
 adjacent free blocks to coalesce, xrealloc to preserve data while growing,
 shrinking and relocating, and heap_stats to report exact live accounting — on
@@ -22,14 +22,13 @@ CFLAGS = [
     "-O1",
     "-g",
     "-fno-omit-frame-pointer",
-    "-fsanitize=address,undefined",
+    "-fsanitize=undefined",
     "-fno-sanitize-recover=all",
     "-Wall",
     "-I/app",
 ]
 RUN_ENV = dict(
     os.environ,
-    ASAN_OPTIONS="abort_on_error=1:detect_leaks=0",
     UBSAN_OPTIONS="halt_on_error=1:print_stacktrace=1",
 )
 

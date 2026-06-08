@@ -16,3 +16,6 @@ jobs_*.log
 
 # Built submission archive
 *.zip
+
+# C bytecode-vm local prototype
+c-bytecode-vm/dev/

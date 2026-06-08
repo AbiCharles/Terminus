@@ -1,0 +1,75 @@
+# Task configuration schema version
+version = "2.0"
+
+# Task metadata (author, difficulty, categorization)
+[metadata]
+author_name = "Abigail Charles"
+author_email = "warriorp8@gmail.com"
+difficulty = "hard"
+category = "software-engineering"
+# Options for subcategories are: "long_context", "tool_specific", "api_integration", "db_interaction", "ui_building"
+subcategories = ["tool_specific"]
+# Total milestone count — must match the number of [[steps]] blocks below
+number_of_milestones = 3
+# Size of the codebase: minimal -> 0-20 files, small -> 20+ files, large -> 200+ files
+codebase_size = "minimal"
+# Coding languages used in the oracle solution or required by the agent
+languages = ["c"]
+# For tool_specific, api_integration, and db_interaction subcategories, please include specific tool, api framework, or database software
+tags = ["c", "bytecode-vm", "interpreter", "systems-programming", "undefined-behavior"]
+# Estimated time to complete (minutes)
+expert_time_estimate_min = 150
+junior_time_estimate_min = 360
+
+# The agent implements a stack-based bytecode virtual machine in C at /app/vm.c,
+# against the contract in /app/vm.h, from scratch (standard library only). The VM
+# decodes a flat little-endian bytecode program and executes it over a stack of
+# signed 64-bit integers. Milestone 1 covers loading/decoding plus the stack ops,
+# ADD/SUB, PRINT/HALT and the decode/stack error cases. Milestone 2 adds the rest
+# of the arithmetic (MUL/DIV/MOD/NEG with two's-complement wrapping and
+# div-by-zero), comparisons, and local variables (LOAD/STORE with slot bounds).
+# Milestone 3 adds control flow (JMP/JZ/JNZ), real loops, jump-target validation,
+# and a step limit for non-terminating programs. The verifier compiles the
+# candidate's VM together with an independent C harness under
+# UndefinedBehaviorSanitizer and runs assembled bytecode programs, checking the
+# exact status codes and printed output and catching undefined behavior such as
+# signed-overflow on naive arithmetic or out-of-bounds program reads.
+
+# Sandbox environment limits — applied across all milestones (the same container is shared)
+[environment]
+allow_internet = false
+build_timeout_sec = 1200.0
+cpus = 4
+memory_mb = 8192
+storage_mb = 10240
+workdir = "/app"
+
+# Milestone 1 — Loader and stack machine
+[[steps]]
+name = "milestone_1"
+
+[steps.agent]
+timeout_sec = 1800.0
+
+[steps.verifier]
+timeout_sec = 600.0
+
+# Milestone 2 — Arithmetic, comparisons, and locals
+[[steps]]
+name = "milestone_2"
+
+[steps.agent]
+timeout_sec = 1800.0
+
+[steps.verifier]
+timeout_sec = 600.0
+
+# Milestone 3 — Control flow, loops, and limits
+[[steps]]
+name = "milestone_3"
+
+[steps.agent]
+timeout_sec = 1800.0
+
+[steps.verifier]
+timeout_sec = 600.0

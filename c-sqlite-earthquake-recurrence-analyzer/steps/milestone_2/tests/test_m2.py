@@ -67,6 +67,16 @@ class TestMilestone2:
         assert abs(got["magnitude_range"]["min"] - exp["magnitude_range"]["min"]) < 1e-9
         assert abs(got["magnitude_range"]["max"] - exp["magnitude_range"]["max"]) < 1e-9
 
+    def test_stdout_when_no_out_flag(self, catalog):
+        """With --out omitted, the JSON summary must be written to standard output."""
+        res = subprocess.run([BIN, "stats", "--db", catalog], capture_output=True, text=True)
+        assert res.returncode == 0, f"stats (stdout) failed: {res.stderr}"
+        got = json.loads(res.stdout)
+        assert REQUIRED_KEYS.issubset(got), f"missing keys: {REQUIRED_KEYS - set(got)}"
+        exp = _reference.compute_stats(catalog, {})
+        assert abs(got["mc"] - exp["mc"]) < 1e-9
+        assert got["n_total"] == exp["n_total"]
+
     def test_method_constants(self, catalog, tmp_path):
         out = tmp_path / "s.json"
         assert run_stats(catalog, out).returncode == 0

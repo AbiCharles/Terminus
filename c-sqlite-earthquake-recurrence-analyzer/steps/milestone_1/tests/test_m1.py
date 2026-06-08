@@ -138,3 +138,12 @@ class TestMilestone1:
         """An unknown subcommand must exit 2."""
         res = subprocess.run([BIN, "frobnicate", "--db", catalog], capture_output=True, text=True)
         assert res.returncode == 2
+
+    def test_default_db_path(self, tmp_path):
+        """Omitting --db must default to the shipped /app/catalog.db."""
+        out = tmp_path / "q.csv"
+        res = subprocess.run([BIN, "query", "--out", str(out)], capture_output=True, text=True)
+        assert res.returncode == 0, f"default-db query failed: {res.stderr}"
+        header, rows = read_csv(out)
+        assert header == HEADER
+        assert len(rows) > 0, "/app/catalog.db should contain events"

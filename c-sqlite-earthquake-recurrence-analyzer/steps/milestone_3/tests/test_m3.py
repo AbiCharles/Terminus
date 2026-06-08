@@ -74,6 +74,12 @@ class TestMilestone3:
         assert abs(got["a_value"] - exp["a_value"]) <= 2e-3
         assert abs(got["b_uncertainty"] - exp["b_uncertainty"]) <= 1e-3
         assert abs(got["catalog_years"] - exp["catalog_years"]) <= 1e-3
+        # All required summary keys must be present and correct (not just the stats subset).
+        assert got["completeness_method"] == "goodness_of_fit"
+        assert abs(got["gft_confidence"] - 90.0) < 1e-9
+        assert abs(got["delta_m"] - 0.1) < 1e-9
+        assert abs(got["magnitude_range"]["min"] - exp["magnitude_range"]["min"]) < 1e-9
+        assert abs(got["magnitude_range"]["max"] - exp["magnitude_range"]["max"]) < 1e-9
 
     def test_exceedance_matches_reference(self, catalog, tmp_path):
         pre = tmp_path / "rep"

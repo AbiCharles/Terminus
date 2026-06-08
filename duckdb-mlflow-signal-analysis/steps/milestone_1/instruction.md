@@ -1,4 +1,4 @@
-I've got a DuckDB database of experimental sensor runs at /app/measurements.duckdb and I want a small command-line tool to analyze them. Build it at /app/signal_analysis.py. Over three steps it'll pull signals out of the database, compute statistics on them, and record each analysis in MLflow. The measurement data lives only in that database — there's no CSV or raw dump anywhere, so everything has to go through SQL queries.
+I've got a DuckDB database of experimental sensor runs at /app/measurements.duckdb and I want a command-line tool to extract signals from it, built at /app/signal_analysis.py. The measurement data lives only in that database — there's no CSV or raw dump anywhere, so everything has to go through SQL queries.
 
 The database has an `experiments` table (experiment_id, sample_rate_hz, n_samples, status, description) and a `measurements` table (experiment_id, sample_index, signal). Some experiments are flagged with a status other than 'valid' (things like quarantined or failed runs) and those must be skipped everywhere — only valid experiments ever get analyzed.
 

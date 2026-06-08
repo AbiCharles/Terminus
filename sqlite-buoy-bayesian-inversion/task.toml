@@ -18,7 +18,7 @@ codebase_size = "minimal"
 # verifier is not the task language and is not listed.
 languages = ["cpp"]
 # For tool_specific, api_integration, and db_interaction subcategories, please include specific tool, api framework, or database software
-tags = ["sqlite", "bayesian-inference", "calibration", "long-context", "cpp", "linear-algebra"]
+tags = ["sqlite", "bayesian-inference", "calibration", "changepoint-model", "heteroscedastic", "linear-algebra"]
 # Estimated time to complete (minutes)
 expert_time_estimate_min = 120
 junior_time_estimate_min = 240

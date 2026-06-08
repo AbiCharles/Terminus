@@ -16,7 +16,7 @@ codebase_size = "minimal"
 # Coding languages used in the oracle solution or required by the agent
 languages = ["python"]
 # For tool_specific, api_integration, and db_interaction subcategories, please include specific tool, api framework, or database software
-tags = ["mlflow", "model-registry", "scikit-learn", "long-context", "model-governance"]
+tags = ["mlflow", "model-registry", "scikit-learn", "pandas", "long-context", "model-governance"]
 # Estimated time to complete (minutes)
 expert_time_estimate_min = 120
 junior_time_estimate_min = 240
@@ -39,6 +39,13 @@ cpus = 4
 memory_mb = 8192
 storage_mb = 12288
 workdir = "/app"
+
+# Root-level fallback timeouts (per-step [steps.*] values below take precedence).
+[agent]
+timeout_sec = 1800.0
+
+[verifier]
+timeout_sec = 900.0
 
 # Milestone 1 — Codify Dossier Rules: extract approval policy to /app/policy.json
 [[steps]]

@@ -16,6 +16,7 @@ from mlflow.tracking import MlflowClient
 import _reference
 
 TRACKING_URI = "sqlite:////app/mlflow.db"
+EXPERIMENT = "credit_default_promotion"
 REGISTERED_NAME = "meridian_credit_default_classifier"
 ALIAS = "champion"
 ARTIFACT_PATH = "credit_default_model"
@@ -106,3 +107,23 @@ class TestMilestone3:
         predictions = model.predict(sample)
         assert len(predictions) == 20
         assert set(pd.unique(predictions)).issubset({0, 1})
+
+    def test_gates_were_computed_for_all_candidates(self, client):
+        """The promotion must follow from real gate evaluation: every candidate run
+        must carry the acceptance/ranking metrics, so the champion cannot be chosen by
+        deducing the answer from the dossier without computing the gates."""
+        experiment = client.get_experiment_by_name(EXPERIMENT)
+        assert experiment is not None, f"experiment '{EXPERIMENT}' missing"
+        metrics_by_candidate = {}
+        for run in client.search_runs([experiment.experiment_id]):
+            name = _reference.candidate_of_run(run, _reference.CANDIDATE_NAMES)
+            if name:
+                metrics_by_candidate.setdefault(name, set()).update(run.data.metrics)
+        assert _reference.CANDIDATE_NAMES.issubset(metrics_by_candidate), (
+            f"missing candidate runs: {_reference.CANDIDATE_NAMES - set(metrics_by_candidate)}"
+        )
+        for name in _reference.CANDIDATE_NAMES:
+            have = metrics_by_candidate[name]
+            assert {"accuracy", "roc_auc"}.issubset(have), (
+                f"{name} run is missing gate metrics (accuracy/roc_auc); gates not computed"
+            )

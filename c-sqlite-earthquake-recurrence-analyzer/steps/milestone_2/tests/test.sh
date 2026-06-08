@@ -3,14 +3,11 @@ set -uo pipefail
 
 mkdir -p /logs/verifier
 
-# Defensive: a container that starts at / has no working directory set.
+# Defensive: if launched at /, move to the task workdir (tests use absolute paths).
 if [ "$PWD" = "/" ]; then
-  echo "Error: no working directory set (expected /app)."
-  echo 0 > /logs/verifier/reward.txt
-  exit 0
+  cd /app || true
 fi
 
-# them offline (no network) from that wheel directory at test time.
 
 python -m pytest \
     -o cache_dir=/tmp/pytest_cache \

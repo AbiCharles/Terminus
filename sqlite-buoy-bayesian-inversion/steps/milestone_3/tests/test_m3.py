@@ -113,12 +113,12 @@ class TestMilestone3:
             got = load(buoy)["posterior"]
             exp = reference[buoy]["posterior"]
             for key in ("offset", "drift"):
-                assert got[key]["mean"] == pytest.approx(exp[key]["mean"], rel=1e-3, abs=1e-9), f"{buoy}.{key}.mean"
-                assert got[key]["std"] == pytest.approx(exp[key]["std"], rel=1e-2, abs=1e-9), f"{buoy}.{key}.std"
+                assert got[key]["mean"] == pytest.approx(exp[key]["mean"], rel=5e-4, abs=1e-9), f"{buoy}.{key}.mean"
+                assert got[key]["std"] == pytest.approx(exp[key]["std"], rel=4e-3, abs=1e-9), f"{buoy}.{key}.std"
             assert len(got["drift_changes"]) == len(exp["drift_changes"]), f"{buoy} wrong drift_changes count"
             for i, (g, e) in enumerate(zip(got["drift_changes"], exp["drift_changes"])):
-                assert g["mean"] == pytest.approx(e["mean"], rel=1e-3, abs=1e-9), f"{buoy}.drift_changes[{i}].mean"
-                assert g["std"] == pytest.approx(e["std"], rel=1e-2, abs=1e-9), f"{buoy}.drift_changes[{i}].std"
+                assert g["mean"] == pytest.approx(e["mean"], rel=5e-4, abs=1e-9), f"{buoy}.drift_changes[{i}].mean"
+                assert g["std"] == pytest.approx(e["std"], rel=4e-3, abs=1e-9), f"{buoy}.drift_changes[{i}].std"
 
     def test_credible_intervals(self, included, reference):
         """The 95% credible intervals must match the recomputed bounds for every parameter."""
@@ -126,19 +126,19 @@ class TestMilestone3:
             got = load(buoy)["credible_interval_95"]
             exp = reference[buoy]["credible_interval_95"]
             for key in ("offset", "drift"):
-                assert got[key][0] == pytest.approx(exp[key][0], rel=1e-3, abs=1e-9), f"{buoy}.{key}.lo"
-                assert got[key][1] == pytest.approx(exp[key][1], rel=1e-3, abs=1e-9), f"{buoy}.{key}.hi"
+                assert got[key][0] == pytest.approx(exp[key][0], rel=5e-4, abs=1e-9), f"{buoy}.{key}.lo"
+                assert got[key][1] == pytest.approx(exp[key][1], rel=5e-4, abs=1e-9), f"{buoy}.{key}.hi"
             for i, (g, e) in enumerate(zip(got["drift_changes"], exp["drift_changes"])):
-                assert g[0] == pytest.approx(e[0], rel=1e-3, abs=1e-9), f"{buoy}.drift_changes[{i}].lo"
-                assert g[1] == pytest.approx(e[1], rel=1e-3, abs=1e-9), f"{buoy}.drift_changes[{i}].hi"
+                assert g[0] == pytest.approx(e[0], rel=5e-4, abs=1e-9), f"{buoy}.drift_changes[{i}].lo"
+                assert g[1] == pytest.approx(e[1], rel=5e-4, abs=1e-9), f"{buoy}.drift_changes[{i}].hi"
 
     def test_calibration_metrics(self, included, reference):
         """Pre/post-correction RMSE must match, and correction must not worsen the residual."""
         for buoy in included:
             got = load(buoy)["calibration"]
             exp = reference[buoy]["calibration"]
-            assert got["rmse_residual"] == pytest.approx(exp["rmse_residual"], rel=1e-3, abs=1e-9)
-            assert got["corrected_rmse"] == pytest.approx(exp["corrected_rmse"], rel=1e-3, abs=1e-9)
+            assert got["rmse_residual"] == pytest.approx(exp["rmse_residual"], rel=5e-4, abs=1e-9)
+            assert got["corrected_rmse"] == pytest.approx(exp["corrected_rmse"], rel=5e-4, abs=1e-9)
             assert got["corrected_rmse"] <= got["rmse_residual"] + 1e-9
 
     def test_gate_partitions_fleet(self, included, gate):
@@ -163,7 +163,7 @@ class TestMilestone3:
         fleet = summary["fleet"]
         assert fleet["n_buoys"] == len(included)
         rmses = [reference[b]["calibration"]["corrected_rmse"] for b in included]
-        assert fleet["mean_corrected_rmse"] == pytest.approx(float(np.mean(rmses)), rel=1e-3, abs=1e-9)
+        assert fleet["mean_corrected_rmse"] == pytest.approx(float(np.mean(rmses)), rel=5e-4, abs=1e-9)
 
     def test_registry_accepted_only(self, included, gate, reference, registry):
         """registry.json must register exactly the accepted buoys with posterior-mean coefficients."""
@@ -173,12 +173,12 @@ class TestMilestone3:
         )
         for buoy, mdl in models.items():
             post = reference[buoy]["posterior"]
-            assert mdl["offset"] == pytest.approx(post["offset"]["mean"], rel=1e-3, abs=1e-9), f"{buoy} offset coeff"
-            assert mdl["drift"] == pytest.approx(post["drift"]["mean"], rel=1e-3, abs=1e-9), f"{buoy} drift coeff"
+            assert mdl["offset"] == pytest.approx(post["offset"]["mean"], rel=5e-4, abs=1e-9), f"{buoy} offset coeff"
+            assert mdl["drift"] == pytest.approx(post["drift"]["mean"], rel=5e-4, abs=1e-9), f"{buoy} drift coeff"
             dcs = mdl["drift_changes"]
             assert len(dcs) == len(post["drift_changes"]), f"{buoy} wrong drift_changes count in registry"
             for i, (g, e) in enumerate(zip(dcs, post["drift_changes"])):
-                assert g == pytest.approx(e["mean"], rel=1e-3, abs=1e-9), f"{buoy} drift_changes[{i}] coeff"
+                assert g == pytest.approx(e["mean"], rel=5e-4, abs=1e-9), f"{buoy} drift_changes[{i}] coeff"
             for g, e in zip(mdl["changepoints_t_days"], reference[buoy]["changepoints_t_days"]):
                 assert g == pytest.approx(e, abs=1e-6), f"{buoy} changepoint in registry"
 
@@ -192,7 +192,7 @@ class TestMilestone3:
             cps = reference[buoy]["changepoints_t_days"]
             for t in (10.0, 60.0, 100.0, 160.0):
                 expected = expected_correction(post, cps, t)
-                assert predict(buoy, t) == pytest.approx(expected, rel=1e-3, abs=1e-6), (
+                assert predict(buoy, t) == pytest.approx(expected, rel=5e-4, abs=1e-6), (
                     f"{buoy}: predict({t}) does not match the calibration"
                 )
 

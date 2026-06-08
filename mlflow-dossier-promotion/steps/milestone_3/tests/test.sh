@@ -8,7 +8,6 @@ if [ "$PWD" = "/" ]; then
   exit 0
 fi
 
-# them offline (no network) from that wheel directory at test time.
 mkdir -p /logs/verifier
 
 python -m pytest \

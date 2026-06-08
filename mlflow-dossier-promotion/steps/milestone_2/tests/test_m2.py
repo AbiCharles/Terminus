@@ -31,13 +31,24 @@ def runs_by_model():
     client = MlflowClient()
     experiment = client.get_experiment_by_name(EXPERIMENT)
     assert experiment is not None, f"MLflow experiment '{EXPERIMENT}' was not created"
-    runs = client.search_runs([experiment.experiment_id])
-    mapping = {}
+    # Newest-first so the agent's most recent run for each candidate wins over any
+    # stale exploratory runs left earlier in the shared tracking store. Among the
+    # runs that identify as a candidate, prefer the most recent one that logs
+    # model_type as a param (the spec-compliant run), falling back to the most
+    # recent run otherwise identified as that candidate.
+    runs = client.search_runs(
+        [experiment.experiment_id], order_by=["attributes.start_time DESC"]
+    )
+    by_any = {}
+    by_param = {}
     for run in runs:
         name = _reference.candidate_of_run(run, EXPECTED_CANDIDATES)
-        if name:
-            mapping[name] = run
-    return mapping
+        if not name:
+            continue
+        by_any.setdefault(name, run)
+        if run.data.params.get("model_type") == name:
+            by_param.setdefault(name, run)
+    return {**by_any, **by_param}
 
 
 @pytest.fixture(scope="module")

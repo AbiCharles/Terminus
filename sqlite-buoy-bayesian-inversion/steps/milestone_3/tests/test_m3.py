@@ -148,20 +148,36 @@ class TestMilestone3:
             f"gate should partition the fleet; got {n_acc}/{len(included)} accepted"
         )
 
-    def test_summary_accept_reject(self, included, gate, summary):
-        """summary.json must list each buoy's accepted/rejected status matching the §13 gate."""
+    def test_summary_accept_reject(self, included, gate, reference, summary):
+        """summary.json must list each buoy's accepted/rejected status (matching the §13
+        gate) and carry the full per-buoy record the instruction mandates: sensor_type,
+        n_observations, offset_mean, drift_mean, drift_change_means and corrected_rmse."""
         acc = {b for b in included if gate[b]}
         rej = {b for b in included if not gate[b]}
         assert set(summary["accepted"]) == acc, "summary.json accepted list does not match the gate"
         assert set(summary["rejected"]) == rej, "summary.json rejected list does not match the gate"
-        status = {b["buoy_id"]: b["status"] for b in summary["buoys"]}
+        entries = {b["buoy_id"]: b for b in summary["buoys"]}
+        assert set(entries) == set(included), "summary.buoys must list every calibrated buoy exactly once"
         for buoy in included:
-            assert status.get(buoy) == ("accepted" if gate[buoy] else "rejected"), f"{buoy} status wrong"
+            e = entries[buoy]
+            ref = reference[buoy]
+            assert e["status"] == ("accepted" if gate[buoy] else "rejected"), f"{buoy} status wrong"
+            assert e["sensor_type"] == ref["sensor_type"], f"{buoy} summary sensor_type wrong"
+            assert e["n_observations"] == ref["n_observations"], f"{buoy} summary n_observations wrong"
+            assert e["offset_mean"] == pytest.approx(ref["posterior"]["offset"]["mean"], rel=2e-4, abs=1e-9), f"{buoy} summary offset_mean"
+            assert e["drift_mean"] == pytest.approx(ref["posterior"]["drift"]["mean"], rel=2e-4, abs=1e-9), f"{buoy} summary drift_mean"
+            exp_dcm = [dc["mean"] for dc in ref["posterior"]["drift_changes"]]
+            assert len(e["drift_change_means"]) == len(exp_dcm), f"{buoy} summary drift_change_means count"
+            for i, (g, ex) in enumerate(zip(e["drift_change_means"], exp_dcm)):
+                assert g == pytest.approx(ex, rel=2e-4, abs=1e-9), f"{buoy} summary drift_change_means[{i}]"
+            assert e["corrected_rmse"] == pytest.approx(ref["calibration"]["corrected_rmse"], rel=2e-4, abs=1e-9), f"{buoy} summary corrected_rmse"
 
-    def test_fleet_summary(self, included, reference, summary):
-        """The fleet block must aggregate corrected RMSE over ALL calibrated buoys."""
+    def test_fleet_summary(self, included, gate, reference, summary):
+        """The fleet block must report n_buoys, n_accepted (gate-accepted count) and the
+        corrected RMSE aggregated over ALL calibrated buoys."""
         fleet = summary["fleet"]
         assert fleet["n_buoys"] == len(included)
+        assert fleet["n_accepted"] == sum(1 for b in included if gate[b]), "fleet.n_accepted must count gate-accepted buoys"
         rmses = [reference[b]["calibration"]["corrected_rmse"] for b in included]
         assert fleet["mean_corrected_rmse"] == pytest.approx(float(np.mean(rmses)), rel=2e-4, abs=1e-9)
 
@@ -173,6 +189,7 @@ class TestMilestone3:
         )
         for buoy, mdl in models.items():
             post = reference[buoy]["posterior"]
+            assert mdl["sensor_type"] == reference[buoy]["sensor_type"], f"{buoy} registry sensor_type wrong"
             assert mdl["offset"] == pytest.approx(post["offset"]["mean"], rel=2e-4, abs=1e-9), f"{buoy} offset coeff"
             assert mdl["drift"] == pytest.approx(post["drift"]["mean"], rel=2e-4, abs=1e-9), f"{buoy} drift coeff"
             dcs = mdl["drift_changes"]

@@ -16,3 +16,6 @@ jobs_*.log
 
 # Built submission archive
 *.zip
+
+# C spectral-analysis local prototype
+c-spectral-analysis/dev/

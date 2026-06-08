@@ -28,8 +28,9 @@ RUN apt-get update \
 # Verifier-ONLY dependencies (pinned), staged as wheels and NOT installed: the agent
 # works in C++ and needs none of these. The pytest verifier recomputes the reference
 # posterior independently with numpy; each milestone's tests/test.sh installs these
-# offline from this wheel directory at verification time.
-RUN pip install --no-cache-dir \
+# offline (--no-index) from this wheel directory at verification time, so the agent
+# runtime image never carries the test tooling.
+RUN pip download --no-cache-dir --dest /opt/verifier-wheels \
     numpy==2.4.6 \
     pytest==8.4.1 \
     pytest-json-ctrf==0.3.5

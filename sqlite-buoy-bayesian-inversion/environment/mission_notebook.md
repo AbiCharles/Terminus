@@ -94,24 +94,28 @@ physical units. The inversion treats each observation's noise as known and indep
 observation by the inverse of its variance, so noisier observations contribute less to the estimate than
 precise ones.
 
-## §10 Drift Changepoint
+## §10 Drift Changepoints
 
-A fleet-wide servicing in mid-March alters each instrument's drift rate, so the drift is not a single
-constant slope across the season. The current cycle models a drift changepoint at 2024-03-17T00:00:00Z:
-the residual equals an additive offset, plus a baseline drift acting on elapsed days, plus a drift change
-acting on the days elapsed beyond the changepoint (and zero before it). The changepoint instant is the
-same for every buoy.
+Repeated fleet-wide servicings across the season revise each instrument's drift rate, so the drift is a
+piecewise-linear function of elapsed time rather than a single constant slope. The current cycle models
+four drift changepoints, at 2024-02-15T00:00:00Z, 2024-03-17T00:00:00Z, 2024-04-20T00:00:00Z, and
+2024-05-25T00:00:00Z (listed in chronological order). The residual equals an additive offset, plus a
+baseline drift acting on elapsed days, plus, for each changepoint in turn, a drift change acting on the
+days elapsed beyond that changepoint (and zero before it). The set of changepoints is the same for every
+buoy, so the model has six parameters: the offset, the baseline drift, and one drift change per
+changepoint (four of them).
 
 ## §11 Bayesian Prior Elicitation
 
-Each of the three calibration parameters — the offset, the baseline drift, and the drift change — is given
-an independent Gaussian prior per sensor type. For temperature, the offset prior is Gaussian with mean
+The calibration parameters — the offset, the baseline drift, and each drift change — are given
+independent Gaussian priors per sensor type. For temperature, the offset prior is Gaussian with mean
 0.0 and standard deviation 0.5, the drift prior is Gaussian with mean 0.0 and standard deviation 0.02,
 and the drift-change prior is Gaussian with mean 0.0 and standard deviation 0.02. For pressure, the
 offset prior is Gaussian with mean 0.0 and standard deviation 2.0, the drift prior is Gaussian with mean
 0.0 and standard deviation 0.05, and the drift-change prior is Gaussian with mean 0.0 and standard
-deviation 0.05. The priors are weakly informative so that, where the record is informative, the data
-dominate the posterior.
+deviation 0.05. The single drift-change prior for a sensor type applies independently and identically to
+each of that buoy's four drift-change parameters. The priors are weakly informative so that, where the
+record is informative, the data dominate the posterior.
 
 ## §12 Exclusion and Maintenance Protocol
 
@@ -124,11 +128,12 @@ end instant is admitted.
 ## §13 Inversion Methodology and Reporting
 
 For each included buoy, form the residual series by subtracting the reference from the converted reading
-at each admitted timestamp, and fit the change-point drift model of §10 by combining the inverse-variance
-observation weights of §9 with the Gaussian priors of §11. The estimate is the conjugate Gaussian
-posterior over the offset, the baseline drift, and the drift change; report each parameter's posterior
-mean and standard deviation and a central 95% credible interval, together with the admitted observation
-count, the changepoint in elapsed days, and the root-mean-square residual before and after subtracting
+at each admitted timestamp, and fit the multi-change-point drift model of §10 by combining the
+inverse-variance observation weights of §9 with the Gaussian priors of §11. The estimate is the conjugate
+Gaussian posterior over the offset, the baseline drift, and the per-changepoint drift changes; report each
+parameter's posterior mean and standard deviation and a central 95% credible interval, together with the
+admitted observation count, the changepoints in elapsed days, and the root-mean-square residual before and
+after subtracting
 the fitted model. A fleet-level summary aggregates the per-buoy corrected root-mean-square residuals.
 Each buoy's calibration is then subject to an acceptance gate: a calibration is accepted only when its
 drift change is statistically resolved — the 95% credible interval for the drift-change parameter

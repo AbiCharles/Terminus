@@ -2,18 +2,20 @@
 
 Encodes the binding calibration protocol (the answer key for milestone 1) and
 recomputes, directly from the SQLite store at /app/observations.db, the cleaned
-residual series (milestone 2) and the heteroscedastic, three-parameter
-change-point Bayesian posterior (milestone 3). It never reads the agent's
+residual series (milestone 2) and the heteroscedastic, (K+2)-parameter
+multi-change-point Bayesian posterior (milestone 3). It never reads the agent's
 protocol.json or /app/artifacts, so an agent cannot weaken verification by
 tampering with its own outputs, and the agent has no access to this module.
 
 The model, per buoy, on the cleaned residual r(t) = converted - reference:
 
-    r = offset + drift * t + drift_change * max(0, t - t_changepoint) + noise,
+    r = offset + drift * t + sum_k drift_change_k * max(0, t - cp_k) + noise,
     noise ~ Normal(0, measurement_std**2)   (heteroscedastic, weights = 1/std**2)
 
-with independent per-sensor-type Gaussian priors on (offset, drift, drift_change).
-The posterior is the conjugate weighted (generalized least squares) Gaussian.
+with K = 4 drift changepoints cp_1..cp_K and independent per-sensor-type Gaussian
+priors on the offset, the drift, and (identically) each drift change. The posterior
+is the conjugate weighted (generalized least squares) Gaussian over K+2 parameters;
+the (K+2)x(K+2) system is solved with numpy, independently of the agent's C++.
 """
 
 import sqlite3
@@ -27,7 +29,12 @@ MISSION_EPOCH = "2024-01-01T00:00:00Z"
 TIME_UNIT = "days"
 ACTIVE_STATUS = "active"
 INCLUDED_SENSOR_TYPES = ["pressure", "temperature"]
-DRIFT_CHANGEPOINT = "2024-03-17T00:00:00Z"
+DRIFT_CHANGEPOINTS = [
+    "2024-02-15T00:00:00Z",
+    "2024-03-17T00:00:00Z",
+    "2024-04-20T00:00:00Z",
+    "2024-05-25T00:00:00Z",
+]
 
 UNIT_CONVERSION = {"temperature": 0.0625, "pressure": 0.1}
 PRIORS = {
@@ -48,7 +55,6 @@ EXCLUSION_INTERVALS = [
 ]
 
 Z95 = 1.959963984540054
-PARAMS = ("offset", "drift", "drift_change")
 
 
 def _parse(ts):
@@ -56,7 +62,8 @@ def _parse(ts):
 
 
 _EPOCH_DT = _parse(MISSION_EPOCH)
-T_CHANGE = (_parse(DRIFT_CHANGEPOINT) - _EPOCH_DT).total_seconds() / 86400.0
+T_CHANGES = [(_parse(cp) - _EPOCH_DT).total_seconds() / 86400.0 for cp in DRIFT_CHANGEPOINTS]
+K = len(T_CHANGES)
 
 
 def expected_protocol():
@@ -66,7 +73,7 @@ def expected_protocol():
         "time_unit": TIME_UNIT,
         "active_status": ACTIVE_STATUS,
         "included_sensor_types": INCLUDED_SENSOR_TYPES,
-        "drift_changepoint": DRIFT_CHANGEPOINT,
+        "drift_changepoints": DRIFT_CHANGEPOINTS,
         "sensors": {
             "temperature": {"unit_conversion": UNIT_CONVERSION["temperature"], "priors": PRIORS["temperature"]},
             "pressure": {"unit_conversion": UNIT_CONVERSION["pressure"], "priors": PRIORS["pressure"]},
@@ -87,7 +94,6 @@ def valid_experiment_ids(db_path=DB_PATH):
     return [b for b, s in rows if s in INCLUDED_SENSOR_TYPES]
 
 
-# Back-compat aliases used by the test modules.
 def included_buoys(db_path=DB_PATH):
     return valid_experiment_ids(db_path)
 
@@ -149,14 +155,16 @@ def clean_series(buoy_id, db_path=DB_PATH):
 
 def accepted(buoy_id, db_path=DB_PATH):
     """Acceptance gate (notebook §13): a buoy's calibration is accepted — and its
-    model registered — only if its drift_change is statistically resolved, i.e. the
-    95% credible interval for drift_change excludes zero."""
-    lo, hi = posterior(buoy_id, db_path)["credible_interval_95"]["drift_change"]
-    return not (lo <= 0.0 <= hi)
+    model registered — only if at least one drift change is statistically resolved,
+    i.e. some drift_change's 95% credible interval excludes zero."""
+    for lo, hi in posterior(buoy_id, db_path)["credible_interval_95"]["drift_changes"]:
+        if not (lo <= 0.0 <= hi):
+            return True
+    return False
 
 
 def posterior(buoy_id, db_path=DB_PATH):
-    """Heteroscedastic three-parameter change-point conjugate Gaussian posterior."""
+    """Heteroscedastic (K+2)-parameter multi-change-point conjugate Gaussian posterior."""
     sensor_type = buoy_sensor_type(buoy_id, db_path)
     series = clean_series(buoy_id, db_path)
     t = np.array(series["t_days"], dtype=np.float64)
@@ -164,30 +172,36 @@ def posterior(buoy_id, db_path=DB_PATH):
     std = np.array(series["measurement_std"], dtype=np.float64)
     n = t.shape[0]
 
-    hinge = np.maximum(0.0, t - T_CHANGE)
-    design = np.column_stack([np.ones(n), t, hinge])
+    cols = [np.ones(n), t] + [np.maximum(0.0, t - tc) for tc in T_CHANGES]
+    design = np.column_stack(cols)
     w = 1.0 / std**2
     atwa = design.T @ (design * w[:, None])
     atwr = design.T @ (r * w)
 
-    priors = PRIORS[sensor_type]
-    m0 = np.array([priors[p]["mean"] for p in PARAMS], dtype=np.float64)
-    s0_inv = np.diag([1.0 / priors[p]["std"] ** 2 for p in PARAMS])
+    pr = PRIORS[sensor_type]
+    m0 = np.array([pr["offset"]["mean"], pr["drift"]["mean"]] + [pr["drift_change"]["mean"]] * K, dtype=np.float64)
+    s0_diag = [1.0 / pr["offset"]["std"] ** 2, 1.0 / pr["drift"]["std"] ** 2] + [1.0 / pr["drift_change"]["std"] ** 2] * K
+    s0_inv = np.diag(s0_diag)
 
     sn = np.linalg.inv(s0_inv + atwa)
     mn = sn @ (s0_inv @ m0 + atwr)
     sds = np.sqrt(np.diag(sn))
 
-    fitted = design @ mn
-    corrected = r - fitted
+    corrected = r - design @ mn
     return {
         "buoy_id": buoy_id,
         "sensor_type": sensor_type,
         "n_observations": int(n),
-        "changepoint_t_days": float(T_CHANGE),
-        "posterior": {p: {"mean": float(mn[i]), "std": float(sds[i])} for i, p in enumerate(PARAMS)},
+        "changepoints_t_days": [float(x) for x in T_CHANGES],
+        "posterior": {
+            "offset": {"mean": float(mn[0]), "std": float(sds[0])},
+            "drift": {"mean": float(mn[1]), "std": float(sds[1])},
+            "drift_changes": [{"mean": float(mn[2 + k]), "std": float(sds[2 + k])} for k in range(K)],
+        },
         "credible_interval_95": {
-            p: [float(mn[i] - Z95 * sds[i]), float(mn[i] + Z95 * sds[i])] for i, p in enumerate(PARAMS)
+            "offset": [float(mn[0] - Z95 * sds[0]), float(mn[0] + Z95 * sds[0])],
+            "drift": [float(mn[1] - Z95 * sds[1]), float(mn[1] + Z95 * sds[1])],
+            "drift_changes": [[float(mn[2 + k] - Z95 * sds[2 + k]), float(mn[2 + k] + Z95 * sds[2 + k])] for k in range(K)],
         },
         "calibration": {
             "rmse_residual": float(np.sqrt(np.mean(r**2))),

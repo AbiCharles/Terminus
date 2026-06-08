@@ -10,7 +10,7 @@ For this first step, make `/app/buoy_calibrate parse` read /app/mission_notebook
   "time_unit": "days",
   "active_status": "<string>",
   "included_sensor_types": ["<sensor type>", ...],
-  "drift_changepoint": "<ISO8601>",
+  "drift_changepoints": ["<ISO8601>", ...],
   "sensors": {
     "<sensor type>": {
       "unit_conversion": <float>,
@@ -25,4 +25,4 @@ For this first step, make `/app/buoy_calibrate parse` read /app/mission_notebook
 }
 ```
 
-Fill every field from the binding sections: the mission epoch and time unit, the operational status that makes a buoy eligible, which sensor channels are calibrated, the drift changepoint instant, and for each included sensor type the unit conversion and the Gaussian priors for the offset, the baseline drift, and the post-changepoint drift change, plus the maintenance exclusion intervals. The observation noise is not a single per-sensor number here — each observation carries its own measurement standard deviation in the database — so there is no noise field in the protocol. Be precise; superseded values from earlier editions must not appear.
+Fill every field from the binding sections: the mission epoch and time unit, the operational status that makes a buoy eligible, which sensor channels are calibrated, the full list of drift changepoint instants in chronological order, and for each included sensor type the unit conversion and the Gaussian priors for the offset, the baseline drift, and the per-changepoint drift change (one drift-change prior per sensor type, applied to every changepoint), plus the maintenance exclusion intervals. The observation noise is not a single per-sensor number here — each observation carries its own measurement standard deviation in the database — so there is no noise field in the protocol. Be precise; superseded values from earlier editions must not appear.

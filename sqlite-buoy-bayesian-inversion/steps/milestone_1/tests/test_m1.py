@@ -60,9 +60,9 @@ class TestMilestone1:
         assert not math.isclose(press, 0.25, abs_tol=1e-9)
         assert not math.isclose(press, 0.2, abs_tol=1e-9)
 
-    def test_drift_changepoint(self, protocol):
-        """The drift changepoint must be the binding servicing-end instant."""
-        assert protocol["drift_changepoint"] == EXPECTED["drift_changepoint"]
+    def test_drift_changepoints(self, protocol):
+        """The four drift changepoints must be the binding servicing instants, in order."""
+        assert protocol["drift_changepoints"] == EXPECTED["drift_changepoints"]
 
     def test_priors(self, protocol):
         """Per-sensor Gaussian priors for offset, drift and drift_change must match the governing values."""

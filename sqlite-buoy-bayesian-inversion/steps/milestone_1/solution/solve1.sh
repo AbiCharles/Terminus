@@ -6,16 +6,15 @@ set -euo pipefail
 # 3), and run its `parse` subcommand, which extracts the binding calibration protocol
 # from the governing sections of the mission notebook into /app/protocol.json.
 cat > /app/buoy_calibrate.cpp <<'CPP'
-// Ocean-buoy sensor-drift calibration (SQLite + weighted change-point Gaussian posterior).
+// Ocean-buoy sensor-drift calibration (SQLite + weighted multi-change-point Gaussian posterior).
 //   parse    extract the binding calibration protocol from the mission notebook
 //   query    write the cleaned residual series per buoy from the SQLite store
-//   invert   fit the heteroscedastic 3-parameter change-point Gaussian posterior
-//   predict  evaluate a registered buoy's correction model on [t_days, hinge]
+//   invert   fit the heteroscedastic (K+2)-parameter multi-change-point Gaussian posterior
+//   predict  evaluate a registered buoy's correction model at an elapsed time
 #include <sqlite3.h>
 #include <nlohmann/json.hpp>
 
 #include <algorithm>
-#include <array>
 #include <cmath>
 #include <cstdio>
 #include <cstring>
@@ -33,7 +32,6 @@ using json = nlohmann::ordered_json;
 namespace fs = std::filesystem;
 
 static const double Z95 = 1.959963984540054;
-static const char *PARAMS[3] = {"offset", "drift", "drift_change"};
 
 static std::string read_file(const std::string &path) {
     std::ifstream in(path, std::ios::binary);
@@ -74,7 +72,6 @@ static json parse_notebook(const std::string &path) {
     std::string flat = std::regex_replace(governing, std::regex(R"(\s+)"), " ");
 
     std::string epoch = find1(flat, "mission epoch is fixed at (" + TS + ")");
-    std::string changepoint = find1(flat, "drift changepoint at (" + TS + ")");
     std::string active_status = find1(flat, R"(operational status is (\w+))");
 
     std::string inc_phrase = find1(flat, R"(Only (.+?) sensor channels are included)");
@@ -84,6 +81,17 @@ static json parse_notebook(const std::string &path) {
         for (std::sregex_iterator it(inc_phrase.begin(), inc_phrase.end(), stre), end; it != end; ++it)
             included.push_back(it->str());
     }
+
+    // All K drift changepoints from §10 (chronological order).
+    std::vector<std::string> changepoints;
+    {
+        auto s = flat.find("drift changepoints, at");
+        std::string seg = (s == std::string::npos) ? flat : flat.substr(s, 300);
+        std::regex tsre(TS);
+        for (std::sregex_iterator it(seg.begin(), seg.end(), tsre), end; it != end; ++it)
+            changepoints.push_back(it->str());
+    }
+    if (changepoints.empty()) { std::cerr << "no drift changepoints found\n"; std::exit(1); }
 
     json sensors = json::object();
     for (const std::string &stype : {std::string("temperature"), std::string("pressure")}) {
@@ -127,7 +135,7 @@ static json parse_notebook(const std::string &path) {
     protocol["time_unit"] = "days";
     protocol["active_status"] = active_status;
     protocol["included_sensor_types"] = included;
-    protocol["drift_changepoint"] = changepoint;
+    protocol["drift_changepoints"] = changepoints;
     protocol["sensors"] = sensors;
     protocol["exclusion_intervals"] = exclusions;
     return protocol;
@@ -168,9 +176,9 @@ static std::vector<std::pair<std::string, std::string>> included_buoys(sqlite3 *
     sqlite3_prepare_v2(db, "SELECT buoy_id, sensor_type FROM buoys WHERE status = ? ORDER BY buoy_id", -1, &st, nullptr);
     sqlite3_bind_text(st, 1, status.c_str(), -1, SQLITE_TRANSIENT);
     while (sqlite3_step(st) == SQLITE_ROW) {
-        std::string b = reinterpret_cast<const char *>(sqlite3_column_text(st, 0));
-        std::string s = reinterpret_cast<const char *>(sqlite3_column_text(st, 1));
-        if (std::find(inc.begin(), inc.end(), s) != inc.end()) out.emplace_back(b, s);
+        std::string bb = reinterpret_cast<const char *>(sqlite3_column_text(st, 0));
+        std::string ss = reinterpret_cast<const char *>(sqlite3_column_text(st, 1));
+        if (std::find(inc.begin(), inc.end(), ss) != inc.end()) out.emplace_back(bb, ss);
     }
     sqlite3_finalize(st);
     return out;
@@ -205,9 +213,12 @@ static Series clean_series(sqlite3 *db, const std::string &buoy, const std::stri
     return s;
 }
 
-static double changepoint_t_days(const json &protocol) {
-    return (ts_seconds(protocol["drift_changepoint"].get<std::string>()) -
-            ts_seconds(protocol["mission_epoch"].get<std::string>())) / 86400.0;
+static std::vector<double> changepoint_t_days(const json &protocol) {
+    long long epoch = ts_seconds(protocol["mission_epoch"].get<std::string>());
+    std::vector<double> out;
+    for (const auto &cp : protocol["drift_changepoints"])
+        out.push_back((ts_seconds(cp.get<std::string>()) - epoch) / 86400.0);
+    return out;
 }
 
 static std::string g17(double v) { std::ostringstream o; o << std::setprecision(17) << v; return o.str(); }
@@ -222,83 +233,107 @@ static void write_clean_csv(const std::string &path, const Series &s) {
     }
 }
 
-// 3x3 solve via explicit inverse.
-static void inv3(const double A[3][3], double out[3][3]) {
-    double det = A[0][0] * (A[1][1] * A[2][2] - A[1][2] * A[2][1])
-               - A[0][1] * (A[1][0] * A[2][2] - A[1][2] * A[2][0])
-               + A[0][2] * (A[1][0] * A[2][1] - A[1][1] * A[2][0]);
-    double id = 1.0 / det;
-    out[0][0] = (A[1][1] * A[2][2] - A[1][2] * A[2][1]) * id;
-    out[0][1] = (A[0][2] * A[2][1] - A[0][1] * A[2][2]) * id;
-    out[0][2] = (A[0][1] * A[1][2] - A[0][2] * A[1][1]) * id;
-    out[1][0] = (A[1][2] * A[2][0] - A[1][0] * A[2][2]) * id;
-    out[1][1] = (A[0][0] * A[2][2] - A[0][2] * A[2][0]) * id;
-    out[1][2] = (A[0][2] * A[1][0] - A[0][0] * A[1][2]) * id;
-    out[2][0] = (A[1][0] * A[2][1] - A[1][1] * A[2][0]) * id;
-    out[2][1] = (A[0][1] * A[2][0] - A[0][0] * A[2][1]) * id;
-    out[2][2] = (A[0][0] * A[1][1] - A[0][1] * A[1][0]) * id;
+// General NxN matrix inverse via Gauss-Jordan elimination with partial pivoting.
+static std::vector<std::vector<double>> inverse(std::vector<std::vector<double>> A) {
+    int n = static_cast<int>(A.size());
+    std::vector<std::vector<double>> I(n, std::vector<double>(n, 0.0));
+    for (int i = 0; i < n; ++i) I[i][i] = 1.0;
+    for (int col = 0; col < n; ++col) {
+        int piv = col;
+        for (int r = col + 1; r < n; ++r)
+            if (std::fabs(A[r][col]) > std::fabs(A[piv][col])) piv = r;
+        std::swap(A[col], A[piv]);
+        std::swap(I[col], I[piv]);
+        double d = A[col][col];
+        for (int j = 0; j < n; ++j) { A[col][j] /= d; I[col][j] /= d; }
+        for (int r = 0; r < n; ++r) {
+            if (r == col) continue;
+            double f = A[r][col];
+            for (int j = 0; j < n; ++j) { A[r][j] -= f * A[col][j]; I[r][j] -= f * I[col][j]; }
+        }
+    }
+    return I;
 }
 
-struct Posterior { double mn[3], sd[3]; double t_change; int n; double rmse_residual, corrected_rmse; };
+struct Posterior {
+    std::vector<double> mn, sd;  // size 2 + K: offset, drift, drift_change_1..K
+    std::vector<double> t_change;
+    int n;
+    double rmse_residual, corrected_rmse;
+};
 
 static Posterior compute_posterior(const Series &s, const std::string &stype, const json &protocol) {
+    std::vector<double> tcs = changepoint_t_days(protocol);
+    int K = static_cast<int>(tcs.size());
+    int P = 2 + K;
     int n = static_cast<int>(s.t_days.size());
-    double t_change = changepoint_t_days(protocol);
-    double AtWA[3][3] = {{0}}, AtWr[3] = {0};
-    double sumr2 = 0.0;
-    std::vector<std::array<double, 3>> D(n);
+
+    std::vector<std::vector<double>> AtWA(P, std::vector<double>(P, 0.0));
+    std::vector<double> AtWr(P, 0.0), sumr2(1, 0.0);
+    std::vector<std::vector<double>> D(n, std::vector<double>(P, 0.0));
+    double r2 = 0.0;
     for (int i = 0; i < n; ++i) {
-        double hinge = std::max(0.0, s.t_days[i] - t_change);
-        double d[3] = {1.0, s.t_days[i], hinge};
-        D[i] = {d[0], d[1], d[2]};
+        D[i][0] = 1.0; D[i][1] = s.t_days[i];
+        for (int k = 0; k < K; ++k) D[i][2 + k] = std::max(0.0, s.t_days[i] - tcs[k]);
         double w = 1.0 / (s.mstd[i] * s.mstd[i]);
-        for (int j = 0; j < 3; ++j) {
-            AtWr[j] += d[j] * s.residual[i] * w;
-            for (int k = 0; k < 3; ++k) AtWA[j][k] += d[j] * d[k] * w;
+        for (int j = 0; j < P; ++j) {
+            AtWr[j] += D[i][j] * s.residual[i] * w;
+            for (int l = 0; l < P; ++l) AtWA[j][l] += D[i][j] * D[i][l] * w;
         }
-        sumr2 += s.residual[i] * s.residual[i];
+        r2 += s.residual[i] * s.residual[i];
     }
     const json &pr = protocol["sensors"][stype]["priors"];
-    double m0[3], s0inv[3];
-    for (int p = 0; p < 3; ++p) {
-        m0[p] = pr[PARAMS[p]]["mean"].get<double>();
-        double sd = pr[PARAMS[p]]["std"].get<double>();
-        s0inv[p] = 1.0 / (sd * sd);
-    }
-    double M[3][3];
-    for (int j = 0; j < 3; ++j)
-        for (int k = 0; k < 3; ++k) M[j][k] = AtWA[j][k] + (j == k ? s0inv[j] : 0.0);
-    double Sn[3][3]; inv3(M, Sn);
-    double rhs[3];
-    for (int j = 0; j < 3; ++j) rhs[j] = s0inv[j] * m0[j] + AtWr[j];
-    Posterior post; post.t_change = t_change; post.n = n;
-    for (int j = 0; j < 3; ++j) {
-        double v = 0.0; for (int k = 0; k < 3; ++k) v += Sn[j][k] * rhs[k];
+    std::vector<double> m0(P), s0inv(P);
+    m0[0] = pr["offset"]["mean"].get<double>(); s0inv[0] = 1.0 / std::pow(pr["offset"]["std"].get<double>(), 2);
+    m0[1] = pr["drift"]["mean"].get<double>();  s0inv[1] = 1.0 / std::pow(pr["drift"]["std"].get<double>(), 2);
+    double dcm = pr["drift_change"]["mean"].get<double>(), dcs = pr["drift_change"]["std"].get<double>();
+    for (int k = 0; k < K; ++k) { m0[2 + k] = dcm; s0inv[2 + k] = 1.0 / (dcs * dcs); }
+
+    std::vector<std::vector<double>> Mm = AtWA;
+    for (int j = 0; j < P; ++j) Mm[j][j] += s0inv[j];
+    std::vector<std::vector<double>> Sn = inverse(Mm);
+
+    std::vector<double> rhs(P);
+    for (int j = 0; j < P; ++j) rhs[j] = s0inv[j] * m0[j] + AtWr[j];
+
+    Posterior post; post.t_change = tcs; post.n = n; post.mn.assign(P, 0.0); post.sd.assign(P, 0.0);
+    for (int j = 0; j < P; ++j) {
+        double v = 0.0; for (int l = 0; l < P; ++l) v += Sn[j][l] * rhs[l];
         post.mn[j] = v; post.sd[j] = std::sqrt(Sn[j][j]);
     }
-    double sumc2 = 0.0;
+    double c2 = 0.0;
     for (int i = 0; i < n; ++i) {
-        double pred = post.mn[0] * D[i][0] + post.mn[1] * D[i][1] + post.mn[2] * D[i][2];
-        double c = s.residual[i] - pred; sumc2 += c * c;
+        double pred = 0.0; for (int j = 0; j < P; ++j) pred += post.mn[j] * D[i][j];
+        double c = s.residual[i] - pred; c2 += c * c;
     }
-    post.rmse_residual = std::sqrt(sumr2 / n);
-    post.corrected_rmse = std::sqrt(sumc2 / n);
+    post.rmse_residual = std::sqrt(r2 / n);
+    post.corrected_rmse = std::sqrt(c2 / n);
     return post;
 }
 
 static json posterior_json(const std::string &buoy, const std::string &stype, const Posterior &p) {
+    int K = static_cast<int>(p.t_change.size());
     json j;
     j["buoy_id"] = buoy;
     j["sensor_type"] = stype;
     j["n_observations"] = p.n;
-    j["changepoint_t_days"] = p.t_change;
-    json post = json::object(), ci = json::object();
-    for (int i = 0; i < 3; ++i) {
-        post[PARAMS[i]] = {{"mean", p.mn[i]}, {"std", p.sd[i]}};
-        ci[PARAMS[i]] = json::array({p.mn[i] - Z95 * p.sd[i], p.mn[i] + Z95 * p.sd[i]});
+    j["changepoints_t_days"] = p.t_change;
+    json dchg = json::array(), dchg_ci = json::array();
+    for (int k = 0; k < K; ++k) {
+        double m = p.mn[2 + k], sd = p.sd[2 + k];
+        dchg.push_back({{"mean", m}, {"std", sd}});
+        dchg_ci.push_back(json::array({m - Z95 * sd, m + Z95 * sd}));
     }
-    j["posterior"] = post;
-    j["credible_interval_95"] = ci;
+    j["posterior"] = {
+        {"offset", {{"mean", p.mn[0]}, {"std", p.sd[0]}}},
+        {"drift", {{"mean", p.mn[1]}, {"std", p.sd[1]}}},
+        {"drift_changes", dchg},
+    };
+    j["credible_interval_95"] = {
+        {"offset", json::array({p.mn[0] - Z95 * p.sd[0], p.mn[0] + Z95 * p.sd[0]})},
+        {"drift", json::array({p.mn[1] - Z95 * p.sd[1], p.mn[1] + Z95 * p.sd[1]})},
+        {"drift_changes", dchg_ci},
+    };
     j["calibration"] = {{"rmse_residual", p.rmse_residual}, {"corrected_rmse", p.corrected_rmse}};
     return j;
 }
@@ -330,9 +365,12 @@ int main(int argc, char **argv) {
         json reg = load_json(outdir + "/registry.json");
         if (!reg["models"].contains(buoy)) { std::cerr << "no registered model for " << buoy << "\n"; return 1; }
         json mdl = reg["models"][buoy];
-        double off = mdl["offset"].get<double>(), dr = mdl["drift"].get<double>(), dc = mdl["drift_change"].get<double>();
-        double t = std::stod(opt("--t", "0")), hinge = std::stod(opt("--hinge", "0"));
-        std::cout << g17(off + dr * t + dc * hinge) << "\n";
+        double t = std::stod(opt("--t", "0"));
+        double pred = mdl["offset"].get<double>() + mdl["drift"].get<double>() * t;
+        auto cps = mdl["changepoints_t_days"].get<std::vector<double>>();
+        auto dcs = mdl["drift_changes"].get<std::vector<double>>();
+        for (size_t k = 0; k < cps.size(); ++k) pred += dcs[k] * std::max(0.0, t - cps[k]);
+        std::cout << g17(pred) << "\n";
         return 0;
     }
 
@@ -341,10 +379,9 @@ int main(int argc, char **argv) {
 
     if (cmd == "query") {
         for (auto &pr : buoys) {
-            const std::string &buoy = pr.first, &stype = pr.second;
-            fs::create_directories(outdir + "/" + buoy);
-            write_clean_csv(outdir + "/" + buoy + "/clean.csv", clean_series(db, buoy, stype, protocol));
-            std::cout << "query: " << buoy << "\n";
+            fs::create_directories(outdir + "/" + pr.first);
+            write_clean_csv(outdir + "/" + pr.first + "/clean.csv", clean_series(db, pr.first, pr.second, protocol));
+            std::cout << "query: " << pr.first << "\n";
         }
         sqlite3_close(db);
         return 0;
@@ -365,12 +402,18 @@ int main(int argc, char **argv) {
             json pj = posterior_json(buoy, stype, p);
             std::ofstream(outdir + "/" + buoy + "/posterior.json") << pj.dump(2) << "\n";
 
-            double dlo = p.mn[2] - Z95 * p.sd[2], dhi = p.mn[2] + Z95 * p.sd[2];
-            bool accepted = !(dlo <= 0.0 && 0.0 <= dhi);
+            int K = static_cast<int>(p.t_change.size());
+            bool accepted = false;  // §13 gate: any drift change resolved (CI excludes zero)
+            for (int k = 0; k < K; ++k) {
+                double lo = p.mn[2 + k] - Z95 * p.sd[2 + k], hi = p.mn[2 + k] + Z95 * p.sd[2 + k];
+                if (!(lo <= 0.0 && 0.0 <= hi)) { accepted = true; break; }
+            }
+            std::vector<double> dchg_means;
+            for (int k = 0; k < K; ++k) dchg_means.push_back(p.mn[2 + k]);
             if (accepted) {
                 registry["models"][buoy] = {
-                    {"offset", p.mn[0]}, {"drift", p.mn[1]}, {"drift_change", p.mn[2]},
-                    {"changepoint_t_days", p.t_change}, {"sensor_type", stype},
+                    {"offset", p.mn[0]}, {"drift", p.mn[1]}, {"drift_changes", dchg_means},
+                    {"changepoints_t_days", p.t_change}, {"sensor_type", stype},
                 };
                 summary["accepted"].push_back(buoy);
             } else {
@@ -380,7 +423,7 @@ int main(int argc, char **argv) {
                 {"buoy_id", buoy}, {"sensor_type", stype},
                 {"status", accepted ? "accepted" : "rejected"},
                 {"n_observations", p.n},
-                {"offset_mean", p.mn[0]}, {"drift_mean", p.mn[1]}, {"drift_change_mean", p.mn[2]},
+                {"offset_mean", p.mn[0]}, {"drift_mean", p.mn[1]}, {"drift_change_means", dchg_means},
                 {"corrected_rmse", p.corrected_rmse},
             });
             rmses.push_back(p.corrected_rmse);

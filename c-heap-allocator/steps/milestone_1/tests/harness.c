@@ -167,16 +167,27 @@ static int sc_split(void) {
 static int sc_calloc_zero(void) {
     unsigned char *p = (unsigned char *)xcalloc(100, 8);
     if (p == NULL) return fail("xcalloc(100, 8) returned NULL");
+    if (((uintptr_t)p % ALLOC_ALIGNMENT) != 0) return fail("xcalloc pointer is not 16-byte aligned");
     for (int i = 0; i < 800; i++)
         if (p[i] != 0) return fail("xcalloc memory was not zeroed");
-    pat_fill(p, 800, 42);
-    if (!pat_check(p, 800, 42)) return fail("xcalloc block not writable across full payload");
-    return 0;
+    /* xcalloc must honour the same alignment + non-overlap guarantees as xmalloc:
+     * track it alongside other live allocations (overwrites the zeroed content). */
+    if (track((void *)p, 800, 42)) return 1;
+    void *q = xmalloc(64);
+    if (track(q, 64, 43)) return 1;
+    unsigned char *r = (unsigned char *)xcalloc(10, 4);
+    if (r == NULL) return fail("xcalloc(10, 4) returned NULL");
+    for (int i = 0; i < 40; i++)
+        if (r[i] != 0) return fail("second xcalloc block was not zeroed");
+    if (track((void *)r, 40, 44)) return 1;
+    return verify_all();
 }
 
 static int sc_calloc_overflow(void) {
     if (xcalloc((size_t)-1, 2) != NULL) return fail("xcalloc multiplication overflow not detected");
     if (xcalloc(2, (size_t)-1) != NULL) return fail("xcalloc multiplication overflow not detected");
+    /* A request that does not overflow but cannot fit the arena must return NULL. */
+    if (xcalloc(1, ALLOC_CAPACITY + 1) != NULL) return fail("xcalloc beyond capacity must return NULL");
     return 0;
 }
 
@@ -248,6 +259,35 @@ static int sc_realloc_null_zero(void) {
     return 0;
 }
 
+static int sc_realloc_fail(void) {
+    /* A non-zero xrealloc that cannot be satisfied must return NULL and leave
+     * the original block fully intact (not freed, not corrupted). */
+    unsigned char *p = (unsigned char *)xmalloc(64);
+    if (p == NULL) return fail("setup xmalloc(64) returned NULL");
+    pat_fill(p, 64, 0xab);
+    /* Exhaust the rest of the arena so no growth or relocation is possible. */
+    static void *blk[4096];
+    int n = 0;
+    for (;;) {
+        void *q = xmalloc(4096);
+        if (q == NULL || n >= 4096) break;
+        blk[n++] = q;
+    }
+    void *r = xrealloc(p, ALLOC_CAPACITY);
+    if (r != NULL) return fail("xrealloc beyond available space must return NULL");
+    /* If a buggy xrealloc freed p before failing, p's region is now reusable.
+     * Drain all remaining free space with scribbling allocations; a correct
+     * allocator never hands out p's still-live region, so p stays intact. */
+    for (int i = 0; i < 4096; i++) {
+        void *s = xmalloc(48);
+        if (s == NULL) break;
+        memset(s, 0xff, 48);
+    }
+    if (!pat_check(p, 64, 0xab)) return fail("a failed xrealloc freed or corrupted the original block");
+    (void)blk;
+    return 0;
+}
+
 static int sc_stats(void) {
     void *a = xmalloc(100);
     void *b = xmalloc(200);
@@ -264,9 +304,29 @@ static int sc_stats(void) {
         printf("FAIL: live_allocations=%zu, expected 2\n", st.live_allocations);
         return 1;
     }
-    if (st.free_bytes == 0) return fail("free_bytes should be greater than zero");
     if (st.bytes_in_use + st.free_bytes > ALLOC_CAPACITY) return fail("bytes_in_use + free_bytes exceeds capacity");
     if (st.largest_free_block > st.free_bytes) return fail("largest_free_block exceeds free_bytes");
+    /* free_bytes must reflect the genuinely available payload space, not a token
+     * value. With 400 payload bytes live it should be ~capacity minus payload
+     * minus a modest per-block metadata overhead (generous bound for varied
+     * designs). */
+    if (st.free_bytes < ALLOC_CAPACITY - 400 - 4096 || st.free_bytes > ALLOC_CAPACITY - 400) {
+        printf("FAIL: free_bytes=%zu outside the expected available-space range\n", st.free_bytes);
+        return 1;
+    }
+    /* largest_free_block must be exactly satisfiable: a request of that size
+     * succeeds, and (when it is smaller than total free space) one byte more
+     * does not — so the value can be neither under- nor over-reported. */
+    void *proof = xmalloc(st.largest_free_block);
+    if (proof == NULL) return fail("largest_free_block is reported but not actually satisfiable");
+    xfree(proof);
+    if (st.largest_free_block < st.free_bytes) {
+        void *bigger = xmalloc(st.largest_free_block + 1);
+        if (bigger != NULL) {
+            xfree(bigger);
+            return fail("largest_free_block is under-reported (a larger allocation succeeded)");
+        }
+    }
     return 0;
 }
 
@@ -312,6 +372,7 @@ static const struct scenario SCENARIOS[] = {
     {"realloc_grow", sc_realloc_grow},
     {"realloc_shrink", sc_realloc_shrink},
     {"realloc_null_zero", sc_realloc_null_zero},
+    {"realloc_fail", sc_realloc_fail},
     {"stats", sc_stats},
     {"frag", sc_frag},
 };

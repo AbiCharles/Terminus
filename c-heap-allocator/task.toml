@@ -49,7 +49,7 @@ name = "milestone_1"
 timeout_sec = 1800.0
 
 [steps.verifier]
-timeout_sec = 450.0
+timeout_sec = 600.0
 
 # Milestone 2 — Reclamation: reuse freed blocks, split large regions, xcalloc
 [[steps]]
@@ -59,7 +59,7 @@ name = "milestone_2"
 timeout_sec = 1800.0
 
 [steps.verifier]
-timeout_sec = 450.0
+timeout_sec = 600.0
 
 # Milestone 3 — Coalescing, realloc and statistics
 [[steps]]
@@ -69,4 +69,4 @@ name = "milestone_3"
 timeout_sec = 1800.0
 
 [steps.verifier]
-timeout_sec = 450.0
+timeout_sec = 600.0

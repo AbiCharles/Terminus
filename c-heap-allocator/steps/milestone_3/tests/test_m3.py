@@ -79,6 +79,11 @@ class TestMilestone3:
         p = run_scenario(harness_bin, "realloc_null_zero")
         assert p.returncode == 0 and "OK" in p.stdout, f"stdout={p.stdout}\nstderr={p.stderr}"
 
+    def test_realloc_failure_preserves_original(self, harness_bin):
+        """A failed (unsatisfiable) xrealloc returns NULL and leaves the original block intact."""
+        p = run_scenario(harness_bin, "realloc_fail")
+        assert p.returncode == 0 and "OK" in p.stdout, f"stdout={p.stdout}\nstderr={p.stderr}"
+
     def test_heap_stats_exact(self, harness_bin):
         """heap_stats reports exact bytes_in_use and live_allocations for a known trace."""
         p = run_scenario(harness_bin, "stats")

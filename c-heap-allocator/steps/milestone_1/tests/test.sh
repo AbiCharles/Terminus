@@ -1,23 +1,19 @@
 #!/bin/bash
-set -uo pipefail
+set -euo pipefail
 
+mkdir -p /logs/verifier
+
+# Defensive: if launched at /, move to the task workdir (tests use absolute paths).
 if [ "$PWD" = "/" ]; then
-  echo "Error: No working directory set." >&2
-  exit 1
+  cd /app || true
 fi
 
-# Verifier-only test dependencies are staged as wheels in the image; install
-# them offline (no network) from that wheel directory at test time. The C
-# toolchain (gcc) used to build the allocator under sanitizers is also part of
-# the image, so no network access is required here.
-mkdir -p /logs/verifier
-pip install --no-index --find-links /opt/wheels pytest==8.4.1 pytest-json-ctrf==0.3.5
-
+# pytest + pytest-json-ctrf are preinstalled in the image; just run them.
+rc=0
 python -m pytest \
     -o cache_dir=/tmp/pytest_cache \
     --ctrf /logs/verifier/ctrf.json \
-    /tests/test_m1.py -rA
-rc=$?
+    /tests/test_m1.py -rA || rc=$?
 
 if [ "$rc" -eq 0 ]; then
   echo 1 > /logs/verifier/reward.txt

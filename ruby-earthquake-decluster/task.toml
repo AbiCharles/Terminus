@@ -21,7 +21,7 @@ tags = ["sqlite", "ruby", "seismology", "declustering", "gardner-knopoff", "gute
 expert_time_estimate_min = 120
 junior_time_estimate_min = 240
 
-# The agent writes and compiles a C CLI (linked against libsqlite3) that reads the
+# The agent writes an executable Ruby CLI (using the sqlite3 gem) that reads the
 # provided earthquake catalog at /app/catalog.db. Milestone 1 adds a `query`
 # subcommand that filters events by named region and/or lat/lon bounding box, date
 # range, depth and magnitude entirely through SQL and writes a deterministic CSV.

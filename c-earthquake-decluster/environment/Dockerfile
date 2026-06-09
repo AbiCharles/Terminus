@@ -24,11 +24,12 @@ RUN apt-get update \
         asciinema \
     && rm -rf /var/lib/apt/lists/*
 
-# Verifier test dependencies (pytest stack) preinstalled from a fully hashed
-# lockfile so verification needs no network and no install step; each milestone's
-# tests/test.sh just runs pytest.
+# Verifier-ONLY test dependencies (pytest stack) staged as wheels and NOT installed:
+# the agent works in C and needs none of them. Each milestone's tests/test.sh installs
+# them offline (--no-index) from this wheel directory at verification time, so the agent
+# runtime image never carries the test tooling.
 COPY requirements.lock /tmp/requirements.lock
-RUN python -m pip install --no-cache-dir --require-hashes --no-deps -r /tmp/requirements.lock
+RUN python -m pip download --no-cache-dir --require-hashes --no-deps -d /opt/verifier-wheels -r /tmp/requirements.lock
 
 WORKDIR /app
 

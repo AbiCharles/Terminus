@@ -25,13 +25,16 @@ junior_time_estimate_min = 240
 # provided earthquake catalog at /app/catalog.db. Milestone 1 adds a `query`
 # subcommand that filters events by named region and/or lat/lon bounding box, date
 # range, depth and magnitude entirely through SQL and writes a deterministic CSV.
-# Milestone 2 adds a `stats` subcommand that estimates the magnitude of
-# completeness (Wiemer & Wyss goodness-of-fit), the Gutenberg-Richter b-value
-# (Aki-Utsu MLE with Shi & Bolt uncertainty) and a-value, writing a JSON summary.
-# Milestone 3 adds a `report` subcommand that writes a deterministic
-# frequency-magnitude CSV and a JSON summary with Poisson exceedance
-# probabilities. The tool exits nonzero on invalid filters and insufficient
-# sample sizes.
+# Milestone 2 adds a `decluster` subcommand that removes aftershocks and
+# foreshocks with the Gardner & Knopoff (1974) windowing method (magnitude-based
+# distance/time windows, haversine separation, decreasing-magnitude processing),
+# writing the surviving mainshock catalog as CSV.
+# Milestone 3 adds a `report` subcommand that computes Gutenberg-Richter
+# recurrence statistics on the declustered catalog — completeness (Wiemer & Wyss
+# goodness-of-fit), b-value (Aki-Utsu MLE with Shi & Bolt uncertainty), a-value —
+# and writes a deterministic frequency-magnitude CSV plus a JSON summary with
+# Poisson exceedance probabilities. The tool exits nonzero on invalid filters
+# (status 2) and insufficient sample sizes (status 3).
 
 # Sandbox environment limits — applied across all milestones (the same container is shared)
 [environment]
@@ -52,7 +55,7 @@ timeout_sec = 1800.0
 [steps.verifier]
 timeout_sec = 450.0
 
-# Milestone 2 — Compute Seismic Statistics: completeness, b-value and a-value
+# Milestone 2 — Decluster the Catalog: Gardner-Knopoff aftershock removal to a mainshock CSV
 [[steps]]
 name = "milestone_2"
 
@@ -62,7 +65,7 @@ timeout_sec = 1800.0
 [steps.verifier]
 timeout_sec = 450.0
 
-# Milestone 3 — Generate Deterministic Reports: FMD CSV + JSON with exceedance probabilities
+# Milestone 3 — Report on the Declustered Catalog: G-R stats + FMD CSV + JSON with exceedance
 [[steps]]
 name = "milestone_3"
 

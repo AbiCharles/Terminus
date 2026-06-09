@@ -1,14 +1,15 @@
-"""Independent reference for the earthquake recurrence analyzer.
+"""Independent reference for the earthquake declustering + recurrence analyzer.
 
 Recomputes, directly from a SQLite catalog and using only the Python standard
-library, the canonical answers the agent's C tool must produce: the filtered
-event set, the Wiemer & Wyss (2000) goodness-of-fit magnitude of completeness,
-the Aki-Utsu b-value with Shi & Bolt (1982) uncertainty, the a-value, and
-Poisson exceedance probabilities. It never reads the agent's output files, so an
-agent cannot weaken verification by tampering with its own results, and the C
-solution has no access to this module. The numerical conventions here (delta_m
-binning, the 90% GFT confidence target, the MIN_SAMPLE / MIN_BINS thresholds)
-are the binding definitions of the task's deterministic outputs.
+library, the canonical answers the agent's tool must produce: the filtered event
+set (milestone 1), the Gardner & Knopoff (1974) declustered mainshock catalog
+(milestone 2), and the Wiemer & Wyss (2000) goodness-of-fit completeness, the
+Aki-Utsu b-value with Shi & Bolt (1982) uncertainty, the a-value and Poisson
+exceedance probabilities computed **on the declustered catalog** (milestone 3).
+It never reads the agent's output files, so an agent cannot weaken verification
+by tampering with its own results, and the agent solution has no access to this
+module. The numerical conventions here are the binding definitions of the task's
+deterministic outputs.
 """
 
 import math
@@ -18,6 +19,7 @@ DELTA_M = 0.1
 GFT_CONFIDENCE = 90.0
 MIN_SAMPLE = 30
 MIN_BINS_ABOVE_MC = 4
+EARTH_RADIUS_KM = 6371.0
 
 COLUMNS = ("id", "time", "latitude", "longitude", "depth_km", "magnitude", "region")
 
@@ -55,21 +57,81 @@ def query_events(db_path, filters):
     return [dict(zip(COLUMNS, r)) for r in rows]
 
 
-def _aggregate(db_path, filters):
+# --------------------------------------------------------------------------- #
+# Milestone 2: Gardner-Knopoff declustering                                   #
+# --------------------------------------------------------------------------- #
+
+def _gk_windows(M):
+    """Distance window (km) and time window (days) from a mainshock magnitude."""
+    L = 10.0 ** (0.1238 * M + 0.983)
+    if M >= 6.5:
+        T = 10.0 ** (0.5409 * M - 0.547)
+    else:
+        T = 10.0 ** (0.032 * M + 2.7389)
+    return L, T
+
+
+def _haversine_km(la1, lo1, la2, lo2):
+    p1 = math.radians(la1)
+    p2 = math.radians(la2)
+    dphi = math.radians(la2 - la1)
+    dlmb = math.radians(lo2 - lo1)
+    a = math.sin(dphi / 2.0) ** 2 + math.cos(p1) * math.cos(p2) * math.sin(dlmb / 2.0) ** 2
+    a = min(1.0, a)
+    return 2.0 * EARTH_RADIUS_KM * math.asin(math.sqrt(a))
+
+
+def _julianday(con, ts):
+    return con.execute("SELECT julianday(?)", (ts,)).fetchone()[0]
+
+
+def decluster(db_path, filters):
+    """Gardner-Knopoff declustered mainshocks, ordered by (time, id).
+
+    Process events by decreasing magnitude (ties: increasing julianday, then
+    increasing id); each not-yet-removed event is a mainshock that removes every
+    other not-yet-removed event within its magnitude-defined haversine distance
+    window and absolute julianday time window (inclusive). Survivors are the
+    mainshocks.
+    """
+    events = query_events(db_path, filters)  # (time, id) order
+    n = len(events)
+    if n == 0:
+        return []
     con = sqlite3.connect(db_path)
     try:
-        where, params = _where(filters)
-        n, mmin, mmax, years = con.execute(
-            "SELECT COUNT(*), MIN(magnitude), MAX(magnitude),"
-            " (julianday(MAX(time)) - julianday(MIN(time)))/365.25 FROM events" + where,
-            params,
-        ).fetchone()
-        mags = [r[0] for r in con.execute(
-            "SELECT magnitude FROM events" + where + " ORDER BY magnitude ASC", params)]
+        jcache = {}
+        for e in events:
+            ts = e["time"]
+            if ts not in jcache:
+                jcache[ts] = _julianday(con, ts)
+            e["_jd"] = jcache[ts]
     finally:
         con.close()
-    return n, mmin, mmax, years, mags
+    order = sorted(range(n), key=lambda i: (-events[i]["magnitude"], events[i]["_jd"], events[i]["id"]))
+    removed = [False] * n
+    for i in order:
+        if removed[i]:
+            continue
+        ei = events[i]
+        L, T = _gk_windows(ei["magnitude"])
+        for j in range(n):
+            if j == i or removed[j]:
+                continue
+            ej = events[j]
+            if abs(ej["_jd"] - ei["_jd"]) <= T and _haversine_km(
+                ei["latitude"], ei["longitude"], ej["latitude"], ej["longitude"]
+            ) <= L:
+                removed[j] = True
+    mains = [events[i] for i in range(n) if not removed[i]]  # preserves (time, id) order
+    for e in mains:
+        e.pop("_jd", None)
+    return mains
 
+
+# --------------------------------------------------------------------------- #
+# Milestone 3: recurrence statistics on the DECLUSTERED catalog               #
+# --------------------------------------------------------------------------- #
 
 def _bin(m):
     return math.floor(m / DELTA_M + 0.5)
@@ -84,8 +146,7 @@ def aki_b(mags, mc):
 
 
 def gft_mc(mags):
-    """Lowest candidate Mc reaching the 90% GFT residual, else the best-fit Mc.
-    Returns (mc, R) or None when no fit is possible."""
+    """Lowest candidate Mc reaching the 90% GFT residual, else the best-fit Mc."""
     if not mags:
         return None
     bins = [_bin(m) for m in mags]
@@ -125,11 +186,26 @@ def gft_mc(mags):
     return None
 
 
+def _catalog_years(events):
+    if not events:
+        return 0.0
+    times = [e["time"] for e in events]
+    con = sqlite3.connect(":memory:")
+    try:
+        jmin = _julianday(con, min(times))
+        jmax = _julianday(con, max(times))
+    finally:
+        con.close()
+    return (jmax - jmin) / 365.25
+
+
 def compute_stats(db_path, filters):
-    """Full statistics dict, or raises ValueError for an insufficient sample."""
-    n, mmin, mmax, years, mags = _aggregate(db_path, filters)
+    """Statistics on the DECLUSTERED catalog, or ValueError for an insufficient sample."""
+    events = decluster(db_path, filters)
+    n = len(events)
     if n == 0:
         raise ValueError("no events match the filters")
+    mags = sorted(e["magnitude"] for e in events)
     res = gft_mc(mags)
     if res is None:
         raise ValueError("insufficient sample for completeness estimation")
@@ -151,15 +227,16 @@ def compute_stats(db_path, filters):
         "b_value": b,
         "b_uncertainty": sigma_b,
         "a_value": a,
-        "catalog_years": years,
-        "magnitude_range": {"min": mmin, "max": mmax},
+        "catalog_years": _catalog_years(events),
+        "magnitude_range": {"min": min(mags), "max": max(mags)},
         "gft_R": R,
     }
 
 
 def fmd(db_path, filters):
-    """Non-cumulative + cumulative frequency-magnitude distribution rows."""
-    _n, _mmin, _mmax, _years, mags = _aggregate(db_path, filters)
+    """Non-cumulative + cumulative FMD rows on the DECLUSTERED catalog."""
+    events = decluster(db_path, filters)
+    mags = [e["magnitude"] for e in events]
     bins = [_bin(m) for m in mags]
     bmin, bmax = min(bins), max(bins)
     nbins = bmax - bmin + 1

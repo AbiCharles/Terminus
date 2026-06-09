@@ -28,7 +28,7 @@ RUN apt-get update \
     && gem install sqlite3 --no-document -- --enable-system-libraries
 
 # Verifier-ONLY test dependencies (pytest stack) staged as wheels and NOT installed:
-# the agent works in C and needs none of them. Each milestone's tests/test.sh installs
+# the agent works in Ruby and needs none of them. Each milestone's tests/test.sh installs
 # them offline (--no-index) from this wheel directory at verification time, so the agent
 # runtime image never carries the test tooling.
 COPY requirements.lock /tmp/requirements.lock

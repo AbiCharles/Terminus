@@ -9,20 +9,23 @@ RUN python /build/generate_catalog.py /build/catalog.db
 # Final runtime stage.
 FROM python:3.13-slim-bookworm@sha256:e4fa1f978c539608a10cdf74700ac32a3f719dfc6e8b6b6001da82deb36302a2
 
-# Agent build toolchain (gcc + libsqlite3 headers to compile the C CLI against
-# SQLite, the sqlite3 shell for inspection) and the recording runtime (tmux,
-# asciinema) the harness expects. The verifier uses the base image's Python
-# standard library (sqlite3, math) for its independent reference; no third-party
-# Python runtime libraries are required.
+# Agent runtime toolchain: Ruby (the agent writes the CLI as an executable Ruby
+# script using the sqlite3 gem), the SQLite dev headers + shell the gem links
+# against, and the recording runtime (tmux, asciinema) the harness expects. The
+# verifier uses the base image's Python standard library (sqlite3, math) for its
+# independent reference; no third-party Python runtime libraries are required.
 RUN apt-get update \
     && apt-get install -y --no-install-recommends \
-        gcc \
-        libc6-dev \
+        ruby-full \
+        ruby-dev \
         libsqlite3-dev \
+        build-essential \
+        pkg-config \
         sqlite3 \
         tmux \
         asciinema \
-    && rm -rf /var/lib/apt/lists/*
+    && rm -rf /var/lib/apt/lists/* \
+    && gem install sqlite3 --no-document -- --enable-system-libraries
 
 # Verifier-ONLY test dependencies (pytest stack) staged as wheels and NOT installed:
 # the agent works in C and needs none of them. Each milestone's tests/test.sh installs

@@ -25,7 +25,7 @@ RUN apt-get update \
         tmux \
         asciinema \
     && rm -rf /var/lib/apt/lists/* \
-    && gem install sqlite3 --no-document -- --enable-system-libraries
+    && gem install sqlite3 -v 2.8.1 --no-document -- --enable-system-libraries
 
 # Verifier-ONLY test dependencies (pytest stack) staged as wheels and NOT installed:
 # the agent works in Ruby and needs none of them. Each milestone's tests/test.sh installs

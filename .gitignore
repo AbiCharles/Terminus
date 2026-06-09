@@ -16,3 +16,6 @@ jobs_*.log
 
 # Built submission archive
 *.zip
+
+# Ruby POD task local prototype
+ruby-pod-cfd/dev/

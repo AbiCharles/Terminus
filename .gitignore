@@ -19,3 +19,4 @@ jobs_*.log
 
 # C bytecode-vm local prototype
 c-bytecode-vm/dev/
+.claude/

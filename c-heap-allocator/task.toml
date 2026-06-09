@@ -16,7 +16,7 @@ codebase_size = "minimal"
 # Coding languages used in the oracle solution or required by the agent
 languages = ["c"]
 # For tool_specific, api_integration, and db_interaction subcategories, please include specific tool, api framework, or database software
-tags = ["c", "memory-allocator", "systems-programming", "undefinedbehaviorsanitizer", "memory-management"]
+tags = ["c", "memory-allocator", "systems-programming", "undefinedbehaviorsanitizer", "arena-allocator"]
 # Estimated time to complete (minutes)
 expert_time_estimate_min = 150
 junior_time_estimate_min = 360

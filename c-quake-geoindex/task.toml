@@ -1,0 +1,74 @@
+# Task configuration schema version
+version = "2.0"
+
+# Task metadata (author, difficulty, categorization)
+[metadata]
+author_name = "Abigail Charles"
+author_email = "warriorp8@gmail.com"
+difficulty = "hard"
+category = "software-engineering"
+# Options for subcategories are: "long_context", "tool_specific", "api_integration", "db_interaction", "ui_building"
+subcategories = ["tool_specific"]
+# Total milestone count — must match the number of [[steps]] blocks below
+number_of_milestones = 3
+# Size of the codebase: minimal -> 0-20 files, small -> 20+ files, large -> 200+ files
+codebase_size = "minimal"
+# Coding languages used in the oracle solution or required by the agent
+languages = ["c"]
+# For tool_specific, api_integration, and db_interaction subcategories, please include specific tool, api framework, or database software
+tags = ["c", "spatial-index", "geospatial", "seismology", "data-structures", "undefinedbehaviorsanitizer"]
+# Estimated time to complete (minutes)
+expert_time_estimate_min = 150
+junior_time_estimate_min = 360
+
+# The agent implements an in-memory earthquake spatial index in C at
+# /app/geoindex.c, against the contract in /app/geoindex.h, managing all memory
+# manually. Milestone 1 builds insertion and efficient haversine radius queries
+# (a flat per-query scan times out on hundreds of thousands of events, so events
+# must be bucketed spatially, with antimeridian wraparound and high-latitude
+# longitude scaling handled exactly). Milestone 2 adds removal (gi_remove) with
+# correct bucket maintenance under heavy insert/remove churn. Milestone 3 adds
+# Gardner-Knopoff declustering (gi_decluster) over the indexed catalog. The
+# verifier compiles the candidate's geoindex.c together with an independent C
+# harness under UndefinedBehaviorSanitizer and runs trace-driven scenarios that
+# check exact query/decluster results against a brute-force oracle and flag any
+# undefined behavior.
+
+# Sandbox environment limits — applied across all milestones (the same container is shared)
+[environment]
+allow_internet = false
+build_timeout_sec = 1200.0
+cpus = 4
+memory_mb = 8192
+storage_mb = 10240
+workdir = "/app"
+
+# Milestone 1 — Spatial Index: gi_insert/gi_query_radius (haversine, efficient grid)
+[[steps]]
+name = "milestone_1"
+
+[steps.agent]
+timeout_sec = 1800.0
+
+[steps.verifier]
+timeout_sec = 600.0
+
+# Milestone 2 — Removal: gi_remove with correct bucket maintenance under insert/remove churn
+[[steps]]
+name = "milestone_2"
+
+[steps.agent]
+timeout_sec = 1800.0
+
+[steps.verifier]
+timeout_sec = 600.0
+
+# Milestone 3 — Declustering: gi_decluster (Gardner-Knopoff) over the indexed catalog
+[[steps]]
+name = "milestone_3"
+
+[steps.agent]
+timeout_sec = 1800.0
+
+[steps.verifier]
+timeout_sec = 600.0

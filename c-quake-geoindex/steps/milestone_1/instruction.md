@@ -1,0 +1,13 @@
+We need an in-memory spatial index for an earthquake catalog, written from scratch in C. You'll build it over three milestones in `/app/geoindex.c`, implementing the contract declared in `/app/geoindex.h`. A non-functional stub is already in `/app/geoindex.c` for you to replace; do not change `/app/geoindex.h`. You manage all memory yourself with `malloc`/`realloc`/`free` — there is no fixed capacity, the index grows as events are inserted.
+
+Your code is compiled together with an independent test harness and run under **UndefinedBehaviorSanitizer** (`-fsanitize=undefined`), so any out-of-bounds access, signed overflow, or other undefined behavior is a hard failure. The harness keeps its own record of every event it inserts and checks your answers against a brute-force computation, so only exact results pass.
+
+This milestone implements **insertion and radius queries**: `gi_insert`, `gi_size`, `gi_query_radius`, and `gi_reset` (read their exact contracts in `geoindex.h`). The remaining functions (`gi_remove`, `gi_decluster`) belong to later milestones — leave them as compiling stubs for now so the file builds.
+
+- `gi_insert(id, lat, lon, mag, t)` stores one event. Keys are unique; the index must hold every inserted event until it is removed or the index is reset.
+- `gi_query_radius(lat, lon, radius_km, out_ids, max)` returns the total number of live events whose **haversine** great-circle distance from `(lat, lon)` is `<= radius_km` (inclusive, Earth radius `GI_EARTH_RADIUS_KM`, clamp the `asin` argument to `1.0`), and writes their ids in **ascending id order** into `out_ids`. If the true count exceeds `max`, write the `max` smallest ids but still return the true total.
+- `gi_reset()` empties the index and frees all memory; after it `gi_size()` is `0` and the index is reusable.
+
+The harness inserts **hundreds of thousands of events and issues tens of thousands of queries**, so scanning every event on each query is far too slow and will time out — bucket events spatially (for example a latitude/longitude grid) and visit only the buckets a query can reach, then filter exactly by haversine. Take particular care near the **antimeridian** (longitude wrapping across ±180°) and at **high latitudes** (a degree of longitude spans far fewer kilometres there): a query window expressed in degrees must still capture every event within the kilometre radius.
+
+Exit and output conventions are handled by the harness; your job is solely to implement the contract correctly and without undefined behavior. Compile locally with `gcc -std=c11 -fsanitize=undefined -I/app /app/geoindex.c your_test.c` to check your work.

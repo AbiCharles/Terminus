@@ -1,0 +1,13 @@
+# Keep the build context minimal: never ship VCS metadata, caches, or build junk
+# into the image. The dev/ prototype and steps/ live outside this context already.
+.git
+.gitignore
+**/__pycache__/
+**/*.pyc
+**/.pytest_cache/
+**/.mypy_cache/
+**/.ruff_cache/
+**/node_modules/
+*.o
+*.out
+a.out

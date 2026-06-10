@@ -1,0 +1,7 @@
+Now add **removal** to the spatial index, by extending `/app/geoindex.c`. Keep milestone 1's insertion and queries working; do not change `/app/geoindex.h`.
+
+Implement `gi_remove(id)`: remove the live event with key `id`, releasing any storage that becomes unused, and return `0` if an event was removed or nonzero if no live event has that key (removing an absent or already-removed id is a safe nonzero return, never a crash). After a removal the event must no longer appear in `gi_size()` or in any `gi_query_radius` result.
+
+The harness runs **heavy churn** — many rounds of inserting thousands of events and removing thousands of others, with keys reused over time — and queries the index throughout, all under UndefinedBehaviorSanitizer. So removal must correctly maintain whatever spatial buckets you built in milestone 1 (an event removed from the index must also be unlinked from its bucket), and your storage must be reusable across insert/remove cycles without unbounded growth, use-after-free, or out-of-bounds access. One large scenario inserts 200k events, removes 80k, inserts 60k more, then issues 20k queries: it must remain both exact and fast, so a removal that merely tombstones events and lets buckets grow without bound will time out or run out of memory.
+
+As before, the harness keeps its own record of every live event and checks your query answers against a brute-force scan, so only exact results pass. Compile locally with `gcc -std=c11 -fsanitize=undefined -I/app /app/geoindex.c your_test.c` to check your work.

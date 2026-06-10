@@ -127,6 +127,27 @@ class TestMilestone3:
         assert re.search(r'"annual_rate":\s*-?\d+\.\d{6}(?!\d)', text)
         assert re.search(r'"exceedance_probability":\s*-?\d+\.\d{6}(?!\d)', text)
 
+    def test_summary_number_formatting(self, catalog, tmp_path):
+        """All numeric summary fields must be bare JSON numbers with the exact stated
+        decimals incl. trailing zeros (4dp for b/sigma/a/years, 1dp for mc/range) —
+        in the top-level stats and in every per_region block."""
+        pre = tmp_path / "rep"
+        assert run_report(catalog, pre).returncode == 0
+        text = open(f"{pre}_summary.json").read()
+        for key in ("b_value", "b_uncertainty", "a_value", "catalog_years"):
+            assert re.search(rf'"{key}":\s*-?\d+\.\d{{4}}(?!\d)', text), f"{key} not 4-decimal bare number"
+        assert re.search(r'"mc":\s*-?\d+\.\d(?!\d)', text), "mc not 1-decimal bare number"
+        assert re.search(r'"min":\s*-?\d+\.\d(?!\d)', text), "magnitude_range.min not 1-decimal"
+        # per_region blocks must use the same bare-number formatting
+        pr = json.loads(text)["per_region"]
+        assert pr, "expected per_region blocks"
+        for blk in re.findall(r'\{"region":.*?\}', text):
+            assert re.search(r'"b_value":\s*-?\d+\.\d{4}(?!\d)', blk), f"per_region b_value not 4dp: {blk}"
+            assert re.search(r'"mc":\s*-?\d+\.\d(?!\d)', blk), f"per_region mc not 1dp: {blk}"
+            # ensure numeric (not string) — json parse already succeeded above
+        for blk in pr:
+            assert isinstance(blk["b_value"], (int, float)), "per_region b_value must be a JSON number"
+
     def test_outputs_are_deterministic(self, catalog, tmp_path):
         a, b = tmp_path / "a", tmp_path / "b"
         assert run_report(catalog, a, "--region", "Cascadia").returncode == 0

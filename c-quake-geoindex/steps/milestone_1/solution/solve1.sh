@@ -156,7 +156,7 @@ size_t gi_query_radius(double lat, double lon, double radius_km, long *out_ids, 
             }
         }
     }
-    qsort(hits, nh, sizeof(long), cmp_long);
+    if (nh) qsort(hits, nh, sizeof(long), cmp_long);
     for (size_t i = 0; i < nh && i < max; i++) out_ids[i] = hits[i];
     free(hits);
     return nh;

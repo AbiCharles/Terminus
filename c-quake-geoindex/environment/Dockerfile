@@ -17,9 +17,10 @@ RUN apt-get update \
         libubsan1 \
     && rm -rf /var/lib/apt/lists/*
 
-# Verifier test dependencies (pytest stack) are preinstalled into the image at
-# build time so verification needs no network and no install step.
-RUN pip install --no-cache-dir \
+# Verifier-ONLY test dependencies (pytest stack) staged as wheels and NOT installed:
+# the agent works in C and needs none of them. Each milestone's tests/test.sh
+# installs them offline (--no-index) from this wheel directory at verification time.
+RUN pip download --no-cache-dir --dest /opt/verifier-wheels \
     pytest==8.4.1 \
     pytest-json-ctrf==0.3.5
 

@@ -70,6 +70,11 @@ class TestMilestone1:
         p = run_scenario(harness_bin, "empty", 30)
         assert p.returncode == 0 and "OK" in p.stdout, f"stdout={p.stdout}\nstderr={p.stderr}"
 
+    def test_reset_empties_and_reuses(self, harness_bin):
+        """gi_reset empties a populated index (size 0, empty queries) and leaves it reusable."""
+        p = run_scenario(harness_bin, "reset", 60)
+        assert p.returncode == 0 and "OK" in p.stdout, f"stdout={p.stdout}\nstderr={p.stderr}"
+
     def test_large_catalog_is_efficient(self, harness_bin):
         """250k events and 30k queries must finish well within the limit — a flat
         per-query scan times out, so the index must bucket events spatially."""

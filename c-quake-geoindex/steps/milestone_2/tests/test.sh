@@ -8,8 +8,10 @@ if [ "$PWD" = "/" ]; then
   cd /app || true
 fi
 
-# pytest + pytest-json-ctrf are preinstalled in the image. Disable errexit around
-# the test run so a failing test still reaches the reward-writing section below.
+# The agent works in C; the verifier-only pytest stack is staged as wheels in the
+# image and installed offline (--no-index) here at verification time.
+pip install --no-index --find-links=/opt/verifier-wheels pytest==8.4.1 pytest-json-ctrf==0.3.5 >/dev/null 2>&1
+# Disable errexit around the test run so a failing test still reaches the reward section.
 set +e
 python -m pytest \
     -o cache_dir=/tmp/pytest_cache \

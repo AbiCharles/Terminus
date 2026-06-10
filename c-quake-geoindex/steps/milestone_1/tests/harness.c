@@ -108,6 +108,22 @@ static int sc_empty(void) {
     return 0;
 }
 
+/* gi_reset must empty a POPULATED index, free its memory, and leave it reusable */
+static int sc_reset(void) {
+    for (int i = 0; i < 3000; i++) add(i, rnd(-80, 80), rnd(-179, 179), rnd(0.5, 7), rnd(0, 7300));
+    if (gi_size() != 3000) { printf("FAIL pre-reset size %zu\n", gi_size()); return 1; }
+    gi_reset();
+    gn = 0;  /* clear our mirror to match */
+    if (gi_size() != 0) { printf("FAIL size after reset %zu\n", gi_size()); return 1; }
+    long out[8];
+    if (gi_query_radius(0, 0, 9000, out, 8) != 0) { printf("FAIL query after reset\n"); return 1; }
+    /* reusable: fresh inserts and queries must work after a reset */
+    for (int i = 0; i < 2500; i++) add(100000 + i, rnd(-80, 80), rnd(-179, 179), rnd(0.5, 7), rnd(0, 7300));
+    if (gi_size() != 2500) { printf("FAIL reuse size %zu\n", gi_size()); return 1; }
+    for (int q = 0; q < 120; q++) if (!check_query(rnd(-80, 80), rnd(-179, 179), rnd(40, 900))) return 1;
+    return 0;
+}
+
 static int sc_scale(void) {
     for (int i = 0; i < 250000; i++) add(i, rnd(-85, 85), rnd(-179, 179), rnd(0.5, 7.5), rnd(0, 7300));
     if (gi_size() != 250000) { printf("FAIL scale size=%zu\n", gi_size()); return 1; }
@@ -134,6 +150,7 @@ int main(int argc, char **argv) {
     else if (!strcmp(s, "wrap")) rc = sc_wrap();
     else if (!strcmp(s, "capacity")) rc = sc_capacity();
     else if (!strcmp(s, "empty")) rc = sc_empty();
+    else if (!strcmp(s, "reset")) rc = sc_reset();
     else if (!strcmp(s, "scale")) rc = sc_scale();
     else { printf("unknown scenario %s\n", s); return 2; }
     if (rc == 0) printf("OK\n");

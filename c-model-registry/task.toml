@@ -1,0 +1,71 @@
+# Task configuration schema version
+version = "2.0"
+
+# Task metadata (author, difficulty, categorization)
+[metadata]
+author_name = "Abigail Charles"
+author_email = "warriorp8@gmail.com"
+difficulty = "hard"
+category = "software-engineering"
+# Options for subcategories are: "long_context", "tool_specific", "api_integration", "db_interaction", "ui_building"
+subcategories = ["tool_specific"]
+# Total milestone count — must match the number of [[steps]] blocks below
+number_of_milestones = 3
+# Size of the codebase: minimal -> 0-20 files, small -> 20+ files, large -> 200+ files
+codebase_size = "minimal"
+# Coding languages used in the oracle solution or required by the agent
+languages = ["c"]
+# For tool_specific, api_integration, and db_interaction subcategories, please include specific tool, api framework, or database software
+tags = ["c", "data-structures", "serialization", "model-governance", "mlops", "undefinedbehaviorsanitizer"]
+# Estimated time to complete (minutes)
+expert_time_estimate_min = 150
+junior_time_estimate_min = 360
+
+# The agent implements, from scratch in C at /app/registry.c, the model-governance
+# registry behind a model-promotion workflow (against /app/registry.h), managing all
+# memory manually. Milestone 1 builds registration, versioned lookup and per-version
+# string tags. Milestone 2 adds promotion gates, aliases, champion promotion (highest
+# gate-passing roc_auc) and a stateful rollback history. Milestone 3 adds exact on-disk
+# persistence (save/load round-trip) that must preserve arbitrary-byte tag values. The
+# verifier compiles the candidate's registry.c with an independent C harness under
+# UndefinedBehaviorSanitizer and runs trace-driven scenarios that check every result
+# against an independent reference and flag any undefined behavior.
+
+# Sandbox environment limits — applied across all milestones (the same container is shared)
+[environment]
+allow_internet = false
+build_timeout_sec = 1200.0
+cpus = 4
+memory_mb = 8192
+storage_mb = 10240
+workdir = "/app"
+
+# Milestone 1 — Registry core: reg_register / version lookup / per-version string tags
+[[steps]]
+name = "milestone_1"
+
+[steps.agent]
+timeout_sec = 1800.0
+
+[steps.verifier]
+timeout_sec = 600.0
+
+# Milestone 2 — Gates, aliases, promotion and stateful rollback history
+[[steps]]
+name = "milestone_2"
+
+[steps.agent]
+timeout_sec = 1800.0
+
+[steps.verifier]
+timeout_sec = 600.0
+
+# Milestone 3 — Persistence: exact save/load round-trip preserving arbitrary-byte tag values
+[[steps]]
+name = "milestone_3"
+
+[steps.agent]
+timeout_sec = 1800.0
+
+[steps.verifier]
+timeout_sec = 600.0

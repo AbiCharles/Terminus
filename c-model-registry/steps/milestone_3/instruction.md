@@ -1,0 +1,6 @@
+Finally, add **persistence** to the registry, by extending `/app/registry.c`. Keep milestones 1 and 2 working; do not change `/app/registry.h`.
+
+- `reg_save(path)` serializes the **entire** registry to the file at `path`: every model, all its versions and their metrics, every tag, every alias, and each model's champion **rollback history**.
+- `reg_load(path)` replaces the current in-memory registry with the one stored at `path`, exactly. After a save followed by a reset followed by a load, every query — version counts, metrics, tags, aliases — must return what was saved, and rollback must still walk the restored history.
+
+You design the on-disk format, but it must **round-trip exactly**. The hard part is that tag values are arbitrary byte strings that may contain spaces, newlines, colons, quotes, `=`, and any other character — including whatever delimiter your format uses — as well as empty and very long values. A naive line- or delimiter-based format will corrupt such values; a length-prefixed (or otherwise unambiguous) encoding will not. The harness saves a registry full of adversarial tag values, reloads it, and checks every value byte-for-byte, all under UndefinedBehaviorSanitizer. Compile locally with `gcc -std=c11 -fsanitize=undefined -I/app /app/registry.c your_test.c` to check your work.

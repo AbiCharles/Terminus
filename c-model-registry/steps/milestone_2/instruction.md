@@ -1,0 +1,8 @@
+Now add **governance gates, aliases, promotion and rollback** to the registry, by extending `/app/registry.c`. Keep milestone 1's registration and lookups working; do not change `/app/registry.h`.
+
+- `reg_evaluate_gate(name, version, policy)` returns whether a version passes the promotion gate: `roc_auc >= auc_floor` AND `f1_macro >= f1_floor` AND `max_bias_dpd <= bias_ceiling` AND `uses_prohibited_proxy == 0`. It must also record the outcome as a `validation_status` tag (`"passed"` or `"failed"`) on that version.
+- `reg_set_alias` / `reg_get_alias` manage named aliases (e.g. `staging`, `champion`) that point at a version; setting an existing alias moves it.
+- `reg_promote_champion(name, policy)` evaluates **every** version against the policy (recording each `validation_status`), then points the `champion` alias at the gate-**passing** version with the **highest `roc_auc`** (ties broken by the **highest version number**). It returns the promoted version, or 0 if none passes. All other versions stay registered.
+- `reg_rollback_champion(name)` undoes the most recent champion change: it restores the `champion` alias to the version it pointed at *before* the most recent promotion (or alias set), and returns that version (0, and an unset alias, if there is no prior champion).
+
+The critical subtlety is the **rollback history**: each promotion must push the previous champion target so a later rollback can restore it, and repeated promote/rollback cycles must walk that history exactly — the harness runs hundreds of interleaved promotions and rollbacks and checks the `champion` alias after each one. As always, everything runs under UndefinedBehaviorSanitizer.

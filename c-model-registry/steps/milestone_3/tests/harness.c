@@ -135,6 +135,55 @@ static int sc_load_replaces(void) {
     return 0;
 }
 
+/* large registry with newline-laden tags, gate-evaluated, promoted (deep history),
+ * aliased — must round-trip exactly. */
+static int sc_full_state(void) {
+    reg_policy_t p = {0.80, 0.70, 0.20};
+    char nm[16], val[96];
+    int NM = 120;
+    for (int i = 0; i < NM; i++) {
+        snprintf(nm, sizeof nm, "mdl_%d", i);
+        int nv = 2 + (i % 4);
+        for (int v = 1; v <= nv; v++) {
+            reg_register(nm, (reg_metrics_t){0.80 + 0.01 * v + 0.0001 * i, 0.9, 0.9, 0.02, 0});
+            snprintf(val, sizeof val, "v%d:has\nnewline\tand : delimiters %d", v, i);
+            reg_set_tag(nm, v, "note", val);
+        }
+        reg_promote_champion(nm, p);
+        reg_register(nm, (reg_metrics_t){0.80 + 0.01 * (nv + 1) + 0.0001 * i, 0.9, 0.9, 0.02, 0});
+        reg_promote_champion(nm, p);
+        reg_set_alias(nm, "staging", 1);
+    }
+    int champ = reg_get_alias("mdl_77", "champion");
+    int stg = reg_get_alias("mdl_77", "staging");
+    if (reg_save(SNAP) != REG_OK) { printf("FAIL save\n"); return 1; }
+    reg_reset();
+    if (reg_load(SNAP) != REG_OK) { printf("FAIL load\n"); return 1; }
+    for (int i = 0; i < NM; i++) {
+        snprintf(nm, sizeof nm, "mdl_%d", i);
+        int nv = 2 + (i % 4);
+        if (reg_version_count(nm) != nv + 1) { printf("FAIL count %s\n", nm); return 1; }
+        char buf[128]; snprintf(val, sizeof val, "v1:has\nnewline\tand : delimiters %d", i);
+        if (reg_get_tag(nm, 1, "note", buf, sizeof buf) != REG_OK || strcmp(buf, val)) { printf("FAIL tag %s\n", nm); return 1; }
+    }
+    if (reg_get_alias("mdl_77", "champion") != champ || reg_get_alias("mdl_77", "staging") != stg) { printf("FAIL aliases after load\n"); return 1; }
+    /* validation_status tags written by promotion must survive too */
+    char buf[32];
+    if (reg_get_tag("mdl_77", 1, "validation_status", buf, sizeof buf) != REG_OK) { printf("FAIL vstatus after load\n"); return 1; }
+    return 0;
+}
+
+static int sc_empty_save_load(void) {
+    if (reg_save(SNAP) != REG_OK) { printf("FAIL save empty\n"); return 1; }
+    reg_register("x", mk(1)); reg_register("y", mk(2));
+    if (reg_load(SNAP) != REG_OK) { printf("FAIL load empty\n"); return 1; }
+    if (reg_version_count("x") != 0 || reg_version_count("y") != 0) { printf("FAIL empty not restored\n"); return 1; }
+    /* reusable after loading empty */
+    reg_register("z", mk(3));
+    if (reg_version_count("z") != 1) { printf("FAIL reuse after empty load\n"); return 1; }
+    return 0;
+}
+
 int main(int argc, char **argv) {
     if (argc < 2) { printf("usage: harness <scenario>\n"); return 2; }
     reg_reset();
@@ -144,6 +193,8 @@ int main(int argc, char **argv) {
     else if (!strcmp(s, "adversarial_strings")) rc = sc_adversarial_strings();
     else if (!strcmp(s, "state_roundtrip")) rc = sc_state_roundtrip();
     else if (!strcmp(s, "load_replaces")) rc = sc_load_replaces();
+    else if (!strcmp(s, "full_state")) rc = sc_full_state();
+    else if (!strcmp(s, "empty_save_load")) rc = sc_empty_save_load();
     else { printf("unknown scenario %s\n", s); return 2; }
     if (rc == 0) printf("OK\n");
     return rc;

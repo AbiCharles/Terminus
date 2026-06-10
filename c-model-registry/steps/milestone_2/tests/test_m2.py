@@ -57,3 +57,17 @@ class TestMilestone2:
         p = run_scenario(harness_bin, "rollback_deep", 120)
         assert p.returncode == 0 and "OK" in p.stdout, f"stdout={p.stdout}\nstderr={p.stderr}"
 
+    def test_promote_tie_breaking(self, harness_bin):
+        """Among gate-passing versions sharing the max roc_auc, the highest version wins."""
+        p = run_scenario(harness_bin, "promote_ties", 60)
+        assert p.returncode == 0 and "OK" in p.stdout, f"stdout={p.stdout}\nstderr={p.stderr}"
+
+    def test_gate_records_status_for_all(self, harness_bin):
+        """Promotion records validation_status on every version, passing and failing."""
+        p = run_scenario(harness_bin, "gate_records_all", 60)
+        assert p.returncode == 0 and "OK" in p.stdout, f"stdout={p.stdout}\nstderr={p.stderr}"
+
+    def test_per_model_independent_rollback(self, harness_bin):
+        """Interleaved promote/rollback across many models keeps each champion correct."""
+        p = run_scenario(harness_bin, "multi_model_rollback", 120)
+        assert p.returncode == 0 and "OK" in p.stdout, f"stdout={p.stdout}\nstderr={p.stderr}"

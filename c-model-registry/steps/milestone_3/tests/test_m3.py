@@ -57,3 +57,12 @@ class TestMilestone3:
         p = run_scenario(harness_bin, "load_replaces", 90)
         assert p.returncode == 0 and "OK" in p.stdout, f"stdout={p.stdout}\nstderr={p.stderr}"
 
+    def test_large_state_roundtrip(self, harness_bin):
+        """A large promoted/aliased/newline-tagged registry round-trips exactly."""
+        p = run_scenario(harness_bin, "full_state", 120)
+        assert p.returncode == 0 and "OK" in p.stdout, f"stdout={p.stdout}\nstderr={p.stderr}"
+
+    def test_empty_registry_roundtrip(self, harness_bin):
+        """Saving and loading an empty registry yields an empty, reusable registry."""
+        p = run_scenario(harness_bin, "empty_save_load", 60)
+        assert p.returncode == 0 and "OK" in p.stdout, f"stdout={p.stdout}\nstderr={p.stderr}"

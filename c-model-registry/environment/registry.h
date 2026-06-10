@@ -78,7 +78,9 @@ int reg_get_tag(const char *name, int version, const char *key, char *buf, size_
 int reg_evaluate_gate(const char *name, int version, reg_policy_t policy);
 
 /* Point alias `alias` of model `name` at `version` (overwriting any prior target).
- * Returns REG_OK, or REG_ERR if (name, version) does not exist. */
+ * This is a low-level operation that does NOT touch the champion rollback history
+ * (only reg_promote_champion does). Returns REG_OK, or REG_ERR if (name, version)
+ * does not exist. */
 int reg_set_alias(const char *name, const char *alias, int version);
 
 /* Return the version that alias `alias` of model `name` points at, or 0 if it is
@@ -94,9 +96,11 @@ int reg_get_alias(const char *name, const char *alias);
 int reg_promote_champion(const char *name, reg_policy_t policy);
 
 /* Roll the "champion" alias back to the version it pointed at before the most
- * recent promotion/alias change (popping the per-name rollback history). Returns
- * the restored version, or 0 if there is no prior champion to roll back to (in
- * which case the champion alias becomes unset). */
+ * recent reg_promote_champion call, popping the per-name promotion history that
+ * reg_promote_champion builds. Only promotions are undoable — a direct
+ * reg_set_alias("champion", ...) does not affect this history. Returns the
+ * restored version, or 0 if there is no prior champion to roll back to (in which
+ * case the champion alias becomes unset). */
 int reg_rollback_champion(const char *name);
 
 /* ---- Milestone 3: persistence ---- */

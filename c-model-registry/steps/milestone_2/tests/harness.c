@@ -114,6 +114,77 @@ static int sc_rollback_deep(void) {
     return 0;
 }
 
+/* tie-break: several gate-passing versions share the highest roc_auc -> the
+ * champion is the highest version among them. */
+static int sc_promote_ties(void) {
+    reg_policy_t p = {0.80, 0.70, 0.20};
+    reg_metrics_t mv[6] = {
+        {0.90, 0.8, 0.85, 0.05, 0},
+        {0.95, 0.8, 0.85, 0.05, 0},   /* tie for max auc */
+        {0.92, 0.8, 0.85, 0.05, 0},
+        {0.95, 0.8, 0.85, 0.05, 0},   /* tie for max auc, higher version -> champion */
+        {0.93, 0.8, 0.85, 0.05, 0},
+        {0.50, 0.8, 0.85, 0.05, 0},   /* fails auc */
+    };
+    for (int v = 1; v <= 6; v++) reg_register("m", mv[v - 1]);
+    int got = reg_promote_champion("m", p);
+    if (got != 4) { printf("FAIL tie champion got=%d exp=4\n", got); return 1; }
+    if (reg_get_alias("m", "champion") != 4) { printf("FAIL tie alias\n"); return 1; }
+    return 0;
+}
+
+/* promotion must record validation_status on EVERY version it evaluates. */
+static int sc_gate_records_all(void) {
+    reg_policy_t p = {0.85, 0.75, 0.10};
+    reg_metrics_t mv[6] = {
+        {0.90, 0.80, 0.85, 0.05, 0},  /* pass */
+        {0.70, 0.80, 0.85, 0.05, 0},  /* fail auc */
+        {0.95, 0.60, 0.85, 0.05, 0},  /* fail f1 */
+        {0.95, 0.80, 0.85, 0.50, 0},  /* fail bias */
+        {0.95, 0.80, 0.85, 0.05, 1},  /* fail proxy */
+        {0.99, 0.90, 0.92, 0.02, 0},  /* pass (best) */
+    };
+    int exp[6] = {1, 0, 0, 0, 0, 1};
+    for (int v = 1; v <= 6; v++) reg_register("m", mv[v - 1]);
+    if (reg_promote_champion("m", p) != 6) { printf("FAIL gate-all champion\n"); return 1; }
+    char buf[32];
+    for (int v = 1; v <= 6; v++) {
+        if (reg_get_tag("m", v, "validation_status", buf, sizeof buf) != REG_OK) { printf("FAIL no status v%d\n", v); return 1; }
+        if (strcmp(buf, exp[v - 1] ? "passed" : "failed")) { printf("FAIL status v%d=%s\n", v, buf); return 1; }
+    }
+    return 0;
+}
+
+/* each model keeps an INDEPENDENT champion history; interleave promote/rollback
+ * across several models and check every champion alias stays correct. */
+static int sc_multi_model_rollback(void) {
+    reg_policy_t p = {0.80, 0.70, 0.20};
+    int champ[5] = {0, 0, 0, 0, 0};
+    int hist[5][128]; int top[5] = {0, 0, 0, 0, 0};
+    int nver[5] = {0, 0, 0, 0, 0};
+    char nm[16];
+    for (int step = 0; step < 500; step++) {
+        int mdl = rint_(5);
+        snprintf(nm, sizeof nm, "m%d", mdl);
+        if (rint_(3) != 0 || nver[mdl] == 0) {
+            reg_register(nm, (reg_metrics_t){0.85 + 0.001 * nver[mdl], 0.9, 0.9, 0.02, 0});  /* new = best */
+            nver[mdl]++;
+            int exp = nver[mdl];
+            int got = reg_promote_champion(nm, p);
+            if (got != exp) { printf("FAIL multi promote m%d step%d got=%d exp=%d\n", mdl, step, got, exp); return 1; }
+            hist[mdl][top[mdl]++] = champ[mdl];
+            champ[mdl] = exp;
+        } else {
+            int got = reg_rollback_champion(nm);
+            int prev = top[mdl] > 0 ? hist[mdl][--top[mdl]] : 0;
+            if (got != prev) { printf("FAIL multi rollback m%d step%d got=%d exp=%d\n", mdl, step, got, prev); return 1; }
+            champ[mdl] = prev;
+        }
+        if (reg_get_alias(nm, "champion") != champ[mdl]) { printf("FAIL multi champ m%d step%d got=%d exp=%d\n", mdl, step, reg_get_alias(nm, "champion"), champ[mdl]); return 1; }
+    }
+    return 0;
+}
+
 int main(int argc, char **argv) {
     if (argc < 2) { printf("usage: harness <scenario>\n"); return 2; }
     reg_reset();
@@ -123,6 +194,9 @@ int main(int argc, char **argv) {
     else if (!strcmp(s, "aliases")) rc = sc_aliases();
     else if (!strcmp(s, "promote")) rc = sc_promote();
     else if (!strcmp(s, "rollback_deep")) rc = sc_rollback_deep();
+    else if (!strcmp(s, "promote_ties")) rc = sc_promote_ties();
+    else if (!strcmp(s, "gate_records_all")) rc = sc_gate_records_all();
+    else if (!strcmp(s, "multi_model_rollback")) rc = sc_multi_model_rollback();
     else { printf("unknown scenario %s\n", s); return 2; }
     if (rc == 0) printf("OK\n");
     return rc;

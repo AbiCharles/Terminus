@@ -2,8 +2,7 @@
 set -euo pipefail
 
 # Milestone 3 oracle: write the full earthquake declustering CLI to /app/quake.c,
-# compile it against libsqlite3, and exercise the `report` subcommand. Self-contained
-# so this milestone's oracle works whether or not earlier milestones ran in the container.
+# compile against libsqlite3, and exercise the `report` subcommand. Self-contained.
 cat > /app/quake.c <<'QUAKE_EOF'
 /* Earthquake declustering + recurrence analyzer.
  *
@@ -392,6 +391,45 @@ static double *load_declustered_mags(const Filters *f, int *n_out, double *years
     return mags;
 }
 
+/* G-R fit from a sorted-ascending magnitude array; 0 + fills outputs, or -1. */
+static int grfit(const double *mags, int n, double *mc_o, int *nabove_o,
+                 double *b_o, double *sigma_o, double *a_o) {
+    double mc, R;
+    if (gft_mc(mags, n, &mc, &R) != 0) return -1;
+    int cmin = bin_index(mc), na = 0;
+    for (int i = 0; i < n; i++) if (bin_index(mags[i]) >= cmin) na++;
+    if (na < MIN_SAMPLE) return -1;
+    double *above = malloc(sizeof(double) * na);
+    int j = 0;
+    for (int i = 0; i < n; i++) if (bin_index(mags[i]) >= cmin) above[j++] = mags[i];
+    double mean;
+    double b = aki_b(above, na, mc, &mean);
+    if (b <= 0.0) { free(above); return -1; }
+    double var = 0.0;
+    for (int i = 0; i < na; i++) var += (above[i] - mean) * (above[i] - mean);
+    var /= ((double)na * (na - 1));
+    *mc_o = mc; *nabove_o = na; *b_o = b; *sigma_o = 2.30 * b * b * sqrt(var);
+    *a_o = log10((double)na) + b * mc;
+    free(above);
+    return 0;
+}
+
+/* Declustered mainshock events (with region), in (time, id) order. */
+static Event *decluster_survivors(const Filters *f, int *n_out) {
+    int ne;
+    Event *ev = load_events(f, &ne);
+    if (ne == 0) { *n_out = 0; return NULL; }
+    gk_decluster(ev, ne);
+    int nm = 0;
+    for (int i = 0; i < ne; i++) if (!ev[i].removed) nm++;
+    Event *m = malloc(sizeof(Event) * (nm > 0 ? nm : 1));
+    int j = 0;
+    for (int i = 0; i < ne; i++) if (!ev[i].removed) m[j++] = ev[i];
+    free(ev);
+    *n_out = nm;
+    return m;
+}
+
 static void compute_stats(const Filters *f, Stats *s) {
     int n; double years, mmin, mmax;
     double *mags = load_declustered_mags(f, &n, &years, &mmin, &mmax);
@@ -516,9 +554,44 @@ static int cmd_report(const Filters *f) {
         fprintf(out, "    {\"magnitude\": %.1f, \"annual_rate\": %.6f, \"exceedance_probability\": %.6f}%s\n",
                 M, annual_rate, prob, (t + 1 < nt) ? "," : "");
     }
-    fprintf(out, "  ]\n}\n");
+    fprintf(out, "  ],\n");
+
+    /* per-region G-R blocks on the declustered catalog, regions sorted by name */
+    int nm;
+    Event *mev = decluster_survivors(f, &nm);
+    char regions[64][64];
+    int nreg = 0;
+    for (int i = 0; i < nm; i++) {
+        int seen = 0;
+        for (int k = 0; k < nreg; k++) if (strcmp(regions[k], mev[i].region) == 0) { seen = 1; break; }
+        if (!seen && nreg < 64) snprintf(regions[nreg++], 64, "%s", mev[i].region);
+    }
+    for (int i = 1; i < nreg; i++) {
+        char tmp[64]; snprintf(tmp, 64, "%s", regions[i]);
+        int k = i - 1;
+        while (k >= 0 && strcmp(regions[k], tmp) > 0) { snprintf(regions[k + 1], 64, "%s", regions[k]); k--; }
+        snprintf(regions[k + 1], 64, "%s", tmp);
+    }
+    fprintf(out, "  \"per_region\": [\n");
+    int emitted = 0;
+    for (int r = 0; r < nreg; r++) {
+        int cnt = 0;
+        for (int i = 0; i < nm; i++) if (strcmp(mev[i].region, regions[r]) == 0) cnt++;
+        double *rm = malloc(sizeof(double) * (cnt > 0 ? cnt : 1));
+        int j = 0;
+        for (int i = 0; i < nm; i++) if (strcmp(mev[i].region, regions[r]) == 0) rm[j++] = mev[i].mag;
+        qsort(rm, cnt, sizeof(double), cmp_double_asc);
+        double rmc, rb, rsig, ra; int rna;
+        int ok = grfit(rm, cnt, &rmc, &rna, &rb, &rsig, &ra);
+        free(rm);
+        if (ok != 0) continue;
+        fprintf(out, "%s    {\"region\": \"%s\", \"n_total\": %d, \"n_above_mc\": %d, \"mc\": %.1f, \"b_value\": %.4f, \"b_uncertainty\": %.4f, \"a_value\": %.4f}",
+                emitted ? ",\n" : "", regions[r], cnt, rna, rmc, rb, rsig, ra);
+        emitted++;
+    }
+    fprintf(out, "\n  ]\n}\n");
     fclose(out);
-    free(mags); free(hist);
+    free(mags); free(hist); free(mev);
     return EX_OK;
 }
 
@@ -540,4 +613,4 @@ QUAKE_EOF
 
 cc -O2 -o /app/quake /app/quake.c -lsqlite3 -lm
 /app/quake report --db /app/catalog.db --region Cascadia --out-prefix /app/report
-echo " wrote /app/report_fmd.csv and /app/report_summary.json"
+echo " wrote /app/report_*"

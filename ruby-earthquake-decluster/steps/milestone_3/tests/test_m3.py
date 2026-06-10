@@ -81,6 +81,25 @@ class TestMilestone3:
         assert abs(got["magnitude_range"]["min"] - exp["magnitude_range"]["min"]) < 1e-9
         assert abs(got["magnitude_range"]["max"] - exp["magnitude_range"]["max"]) < 1e-9
 
+    def test_per_region_matches_reference(self, catalog, tmp_path):
+        """The per_region array must hold a correct G-R fit per region, in name order."""
+        pre = tmp_path / "rep"
+        assert run_report(catalog, pre).returncode == 0
+        got = json.loads(open(f"{pre}_summary.json").read())
+        exp = _reference.per_region(catalog, {})
+        assert "per_region" in got, "summary is missing the per_region array"
+        gpr = got["per_region"]
+        assert [b["region"] for b in gpr] == [e["region"] for e in exp], \
+            "per_region regions differ from the reference (set or ordering)"
+        assert len(gpr) >= 2, "expected a per-region breakdown over multiple regions"
+        for g, e in zip(gpr, exp):
+            assert g["n_total"] == e["n_total"], f"{e['region']} n_total"
+            assert g["n_above_mc"] == e["n_above_mc"], f"{e['region']} n_above_mc"
+            assert abs(g["mc"] - e["mc"]) < 1e-9, f"{e['region']} mc"
+            assert abs(g["b_value"] - e["b_value"]) <= 1e-3, f"{e['region']} b_value"
+            assert abs(g["b_uncertainty"] - e["b_uncertainty"]) <= 1e-3, f"{e['region']} b_uncertainty"
+            assert abs(g["a_value"] - e["a_value"]) <= 2e-3, f"{e['region']} a_value"
+
     def test_exceedance_matches_reference(self, catalog, tmp_path):
         pre = tmp_path / "rep"
         assert run_report(catalog, pre, "--region", "Cascadia",

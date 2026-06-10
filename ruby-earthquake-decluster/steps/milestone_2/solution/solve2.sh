@@ -1,9 +1,8 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-# Milestone 2 oracle: write the full earthquake declustering CLI to /app/quake
-# (an executable Ruby script using the sqlite3 gem) and exercise the `decluster` subcommand.
-# Self-contained so this milestone's oracle works whether or not earlier milestones ran.
+# Milestone 2 oracle: write the executable Ruby CLI to /app/quake (sqlite3 gem) and
+# exercise the `decluster` subcommand. Self-contained across milestones.
 cat > /app/quake <<'QUAKE_EOF'
 #!/usr/bin/env ruby
 # frozen_string_literal: true
@@ -223,6 +222,25 @@ def gft_mc(mags)
   best_mc.nil? ? nil : [best_mc, best_r]
 end
 
+def grfit(mags)
+  res = gft_mc(mags)
+  return nil if res.nil?
+
+  mc, = res
+  cmin = bin_index(mc)
+  above = mags.select { |m| bin_index(m) >= cmin }
+  return nil if above.length < MIN_SAMPLE
+
+  mean = above.sum / above.length
+  denom = mean - (mc - DELTA_M / 2.0)
+  return nil if denom <= 0.0
+
+  b = Math.log10(Math::E) / denom
+  var = above.map { |m| (m - mean)**2 }.sum / (above.length.to_f * (above.length - 1))
+  { mc: mc, n_above_mc: above.length, b_value: b,
+    b_uncertainty: 2.30 * b * b * Math.sqrt(var), a_value: Math.log10(above.length) + b * mc }
+end
+
 def declustered_stats(f)
   events = load_events(open_db(f), f)
   raise 'no events' if events.empty?
@@ -317,6 +335,18 @@ def cmd_report(f)
     prob = 1.0 - Math.exp(-rate * f[:window_years])
     format("    {\"magnitude\": %.1f, \"annual_rate\": %.6f, \"exceedance_probability\": %.6f}", m, rate, prob)
   end
+  by = Hash.new { |h, k| h[k] = [] }
+  s[:mains].each { |e| by[e[:region]] << e }
+  per = []
+  by.keys.sort.each do |region|
+    fit = grfit(by[region].map { |e| e[:mag] }.sort)
+    next if fit.nil?
+
+    per << format("    {\"region\": \"%s\", \"n_total\": %d, \"n_above_mc\": %d, \"mc\": %.1f, " \
+                  "\"b_value\": %.4f, \"b_uncertainty\": %.4f, \"a_value\": %.4f}",
+                  region, by[region].length, fit[:n_above_mc], fit[:mc],
+                  fit[:b_value], fit[:b_uncertainty], fit[:a_value])
+  end
   summary = +"{\n" \
     "  \"completeness_method\": \"goodness_of_fit\",\n" \
     "  \"gft_confidence\": #{format('%.1f', GFT_CONFIDENCE)},\n" \
@@ -330,7 +360,8 @@ def cmd_report(f)
     "  \"catalog_years\": #{format('%.4f', s[:catalog_years])},\n" \
     "  \"window_years\": #{format('%.1f', f[:window_years])},\n" \
     "  \"magnitude_range\": {\"min\": #{format('%.1f', s[:mag_min])}, \"max\": #{format('%.1f', s[:mag_max])}},\n" \
-    "  \"exceedance\": [\n#{exc.join(",\n")}\n  ]\n}\n"
+    "  \"exceedance\": [\n#{exc.join(",\n")}\n  ],\n" \
+    "  \"per_region\": [\n#{per.join(",\n")}\n  ]\n}\n"
   File.write("#{f[:out_prefix]}_summary.json", summary)
   0
 end

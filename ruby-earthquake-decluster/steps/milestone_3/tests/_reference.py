@@ -199,38 +199,65 @@ def _catalog_years(events):
     return (jmax - jmin) / 365.25
 
 
-def compute_stats(db_path, filters):
-    """Statistics on the DECLUSTERED catalog, or ValueError for an insufficient sample."""
-    events = decluster(db_path, filters)
-    n = len(events)
-    if n == 0:
-        raise ValueError("no events match the filters")
-    mags = sorted(e["magnitude"] for e in events)
+def _grfit(mags):
+    """Gutenberg-Richter fit on a sorted magnitude list, or None if insufficient.
+    Returns mc, n_above_mc, b_value, b_uncertainty, a_value, gft_R."""
     res = gft_mc(mags)
     if res is None:
-        raise ValueError("insufficient sample for completeness estimation")
-    mc, R = res
+        return None
+    mc, gft_r = res
     cmin = _bin(mc)
     above = [m for m in mags if _bin(m) >= cmin]
     if len(above) < MIN_SAMPLE:
-        raise ValueError(f"only {len(above)} events at/above Mc")
+        return None
     b, mean = aki_b(above, mc)
     if b is None or b <= 0:
-        raise ValueError("degenerate magnitude distribution")
+        return None
     var = sum((m - mean) ** 2 for m in above) / (len(above) * (len(above) - 1))
-    sigma_b = 2.30 * b * b * math.sqrt(var)
-    a = math.log10(len(above)) + b * mc
     return {
-        "n_total": n,
-        "n_above_mc": len(above),
-        "mc": mc,
-        "b_value": b,
-        "b_uncertainty": sigma_b,
-        "a_value": a,
-        "catalog_years": _catalog_years(events),
-        "magnitude_range": {"min": min(mags), "max": max(mags)},
-        "gft_R": R,
+        "mc": mc, "n_above_mc": len(above), "b_value": b,
+        "b_uncertainty": 2.30 * b * b * math.sqrt(var),
+        "a_value": math.log10(len(above)) + b * mc, "gft_R": gft_r,
     }
+
+
+def compute_stats(db_path, filters):
+    """Statistics on the DECLUSTERED catalog, or ValueError for an insufficient sample."""
+    events = decluster(db_path, filters)
+    if not events:
+        raise ValueError("no events match the filters")
+    mags = sorted(e["magnitude"] for e in events)
+    fit = _grfit(mags)
+    if fit is None:
+        raise ValueError("insufficient sample for completeness estimation")
+    return {
+        "n_total": len(events), "n_above_mc": fit["n_above_mc"], "mc": fit["mc"],
+        "b_value": fit["b_value"], "b_uncertainty": fit["b_uncertainty"], "a_value": fit["a_value"],
+        "catalog_years": _catalog_years(events),
+        "magnitude_range": {"min": min(mags), "max": max(mags)}, "gft_R": fit["gft_R"],
+    }
+
+
+def per_region(db_path, filters):
+    """Per-region G-R fits on the declustered catalog: decluster the full filtered
+    set, partition the mainshocks by region, fit each region with a valid sample.
+    Returns a list ordered by region name; regions without a valid fit are omitted."""
+    mains = decluster(db_path, filters)
+    by = {}
+    for e in mains:
+        by.setdefault(e["region"], []).append(e)
+    out = []
+    for region in sorted(by):
+        mags = sorted(e["magnitude"] for e in by[region])
+        fit = _grfit(mags)
+        if fit is None:
+            continue
+        out.append({
+            "region": region, "n_total": len(by[region]), "n_above_mc": fit["n_above_mc"],
+            "mc": fit["mc"], "b_value": fit["b_value"],
+            "b_uncertainty": fit["b_uncertainty"], "a_value": fit["a_value"],
+        })
+    return out
 
 
 def fmd(db_path, filters):
